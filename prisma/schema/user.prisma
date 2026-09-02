@@ -1,0 +1,55 @@
+model User {
+  id                 String       @id @default(uuid())
+  name               String
+  email              String       @unique
+  password           String?
+  googleId           String?      @unique
+  authProvider       AuthProvider @default(CREDENTIAL)
+  emailVerified      Boolean      @default(false)
+  role               Role         @default(STUDENT)
+  status             UserStatus   @default(ACTIVE)
+  isDeleted          Boolean      @default(false)
+  deletedAt          DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  studentProfile     StudentProfile?
+  instructorProfile  InstructorProfile?
+
+  @@map("users")
+}
+
+model StudentProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  studentIdCode  String   @unique // e.g. registration/roll number
+  departmentId   String
+  department     Department @relation(fields: [departmentId], references: [id])
+  phone          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  enrollments        Enrollment[]
+  attendanceRecords  AttendanceRecord[]
+  results            Result[]
+  fees               Fee[]
+
+  @@index([departmentId])
+  @@map("student_profiles")
+}
+
+model InstructorProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id])
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sections      Section[]
+
+  @@index([departmentId])
+  @@map("instructor_profiles")
+}

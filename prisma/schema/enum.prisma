@@ -1,0 +1,49 @@
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  DELETED
+}
+
+enum AuthProvider {
+  CREDENTIAL
+  GOOGLE
+}
+
+enum SemesterStatus {
+  UPCOMING
+  OPEN
+  CLOSED
+}
+
+enum EnrollmentStatus {
+  ENROLLED
+  DROPPED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+}
+
+enum ExamType {
+  QUIZ
+  MIDTERM
+  FINAL
+}
+
+enum ResultStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum FeeStatus {
+  PENDING
+  PAID
+  FAILED
+}

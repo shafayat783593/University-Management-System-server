@@ -1,0 +1,149 @@
+model Department {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  courses     Course[]
+  students    StudentProfile[]
+  instructors InstructorProfile[]
+
+  @@map("departments")
+}
+
+model Course {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  title        String
+  creditHours  Int
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // self-referencing many-to-many: this course requires these prerequisite courses
+  prerequisites Course[] @relation("CoursePrerequisite")
+  requiredFor   Course[] @relation("CoursePrerequisite")
+
+  sections Section[]
+
+  @@index([departmentId])
+  @@map("courses")
+}
+
+model Semester {
+  id               String         @id @default(uuid())
+  name             String         // e.g. "Spring 2027"
+  year             Int
+  term             String         // e.g. "SPRING", "SUMMER", "FALL"
+  status           SemesterStatus @default(UPCOMING)
+  enrollmentStart  DateTime?
+  enrollmentEnd    DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  sections Section[]
+  fees     Fee[]
+
+  @@unique([year, term])
+  @@map("semesters")
+}
+
+model Section {
+  id             String   @id @default(uuid())
+  courseId       String
+  course         Course   @relation(fields: [courseId], references: [id])
+  semesterId     String
+  semester       Semester @relation(fields: [semesterId], references: [id])
+  instructorId   String
+  instructor     InstructorProfile @relation(fields: [instructorId], references: [id])
+  capacity       Int
+  enrolledCount  Int      @default(0)
+  schedule       String?  // e.g. "Sun/Tue 10:00-11:30"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  enrollments        Enrollment[]
+  attendanceSessions AttendanceSession[]
+  exams              Exam[]
+
+  @@index([courseId])
+  @@index([semesterId])
+  @@index([instructorId])
+  @@map("sections")
+}
+
+model Enrollment {
+  id         String           @id @default(uuid())
+  studentId  String
+  student    StudentProfile   @relation(fields: [studentId], references: [id])
+  sectionId  String
+  section    Section          @relation(fields: [sectionId], references: [id])
+  status     EnrollmentStatus @default(ENROLLED)
+  enrolledAt DateTime         @default(now())
+  droppedAt  DateTime?
+
+  @@unique([studentId, sectionId])
+  @@index([sectionId])
+  @@index([studentId])
+  @@map("enrollments")
+}
+
+model AttendanceSession {
+  id        String   @id @default(uuid())
+  sectionId String
+  section   Section  @relation(fields: [sectionId], references: [id])
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  records AttendanceRecord[]
+
+  @@unique([sectionId, date])
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id         String            @id @default(uuid())
+  sessionId  String
+  session    AttendanceSession @relation(fields: [sessionId], references: [id])
+  studentId  String
+  student    StudentProfile    @relation(fields: [studentId], references: [id])
+  status     AttendanceStatus
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+  @@map("attendance_records")
+}
+
+model Exam {
+  id          String   @id @default(uuid())
+  sectionId   String
+  section     Section  @relation(fields: [sectionId], references: [id])
+  title       String
+  examType    ExamType
+  totalMarks  Float
+  createdAt   DateTime @default(now())
+
+  results Result[]
+
+  @@index([sectionId])
+  @@map("exams")
+}
+
+model Result {
+  id             String       @id @default(uuid())
+  examId         String
+  exam           Exam         @relation(fields: [examId], references: [id])
+  studentId      String
+  student        StudentProfile @relation(fields: [studentId], references: [id])
+  marksObtained  Float
+  status         ResultStatus @default(DRAFT)
+  publishedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([examId, studentId])
+  @@index([studentId])
+  @@map("results")
+}

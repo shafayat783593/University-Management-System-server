@@ -1,0 +1,45 @@
+model Fee {
+  id          String    @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id])
+  semesterId  String
+  semester    Semester  @relation(fields: [semesterId], references: [id])
+  amount      Float
+  status      FeeStatus @default(PENDING)
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  payment Payment?
+
+  @@unique([studentId, semesterId])
+  @@index([studentId])
+  @@map("fees")
+}
+
+model Payment {
+  id        String   @id @default(uuid())
+  feeId     String   @unique
+  fee       Fee      @relation(fields: [feeId], references: [id])
+  trxId     String   @unique // bKash trxID
+  paymentId String   // bKash paymentID from the create-payment step
+  amount    Float
+  paidAt    DateTime @default(now())
+
+  @@map("payments")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String   // User.id of whoever performed the action
+  action     String   // e.g. "RESULT_OVERRIDE", "LATE_DROP"
+  targetType String   // e.g. "Result", "Enrollment"
+  targetId   String
+  oldValue   Json?
+  newValue   Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
