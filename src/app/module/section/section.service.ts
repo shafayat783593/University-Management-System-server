@@ -1,10 +1,10 @@
 import httpStatus from "http-status";
-import { ICreateSectionPayload, ISectionquery, IUpdateSectionPayload } from "./section.interface.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { InstructorApplicationStatus } from "../../../generated/prisma/enums.js";
 import { IQuary } from "../../interface/index.js";
 import { SectionWhereInput } from "../../../generated/prisma/models.js";
+import { ICreateSectionPayload, IUpdateSectionPayload } from "./section.interface.js";
 
 
 const createSection = async (payload: ICreateSectionPayload) => {

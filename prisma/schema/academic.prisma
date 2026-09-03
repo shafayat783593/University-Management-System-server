@@ -22,7 +22,6 @@ model Course {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // self-referencing many-to-many: this course requires these prerequisite courses
   prerequisites Course[] @relation("CoursePrerequisite")
   requiredFor   Course[] @relation("CoursePrerequisite")
 
@@ -84,7 +83,6 @@ model Enrollment {
   enrolledAt DateTime         @default(now())
   droppedAt  DateTime?
 
-  @@unique([studentId, sectionId])
   @@index([sectionId])
   @@index([studentId])
   @@map("enrollments")

@@ -233,18 +233,7 @@ const refreshToken = async (token: string) => {
 	return issueTokenPair(user);
 };
 
-/**
- * Fixed version of the Healthcare-server googleLogin bug:
- * - single lookup by `email`, the only field that's actually unique in the
- *   schema (no compound findUnique on {email, role, googleId})
- * - no unconditional throw after create/update
- * - no `gooleId` / `googlProvider` field-name typos
- *
- * Design note: Google gives us no department, so a brand-new Google
- * signup creates the User only. Downstream code must check
- * `user.studentProfile === null` and block enrollment until the student
- * calls POST /auth/complete-profile.
- */
+
 const googleLogin = async (payload: IGoogleLoginPayload) => {
 	let tokenPayload;
 	try {
