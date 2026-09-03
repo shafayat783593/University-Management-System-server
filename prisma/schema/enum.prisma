@@ -47,3 +47,9 @@ enum FeeStatus {
   PAID
   FAILED
 }
+
+enum InstructorApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}

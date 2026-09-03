@@ -6,14 +6,18 @@ import { AppError } from "../../utils/AppError.js";
 
 const createCourse = async (payload: ICreateCoursePayload) => {
 	const existing = await prisma.course.findUnique({
-		where: { code: payload.code },
+		where: {
+			 code:payload.code
+			 },
 	});
 	if (existing) {
 		throw new AppError(httpStatus.CONFLICT, "Course code already exists");
 	}
 
 	const department = await prisma.department.findUnique({
-		where: { id: payload.departmentId },
+		where: {
+			 id: payload.departmentId
+			 },
 	});
 	if (!department) {
 		throw new AppError(httpStatus.NOT_FOUND, "Department not found");
@@ -21,7 +25,11 @@ const createCourse = async (payload: ICreateCoursePayload) => {
 
 	if (payload.prerequisiteCourseIds?.length) {
 		const foundCount = await prisma.course.count({
-			where: { id: { in: payload.prerequisiteCourseIds } },
+			where: { 
+				id: {
+					 in: payload.prerequisiteCourseIds 
+					} 
+				},
 		});
 		if (foundCount !== payload.prerequisiteCourseIds.length) {
 			throw new AppError(

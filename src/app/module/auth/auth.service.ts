@@ -4,9 +4,12 @@ import crypto from "crypto";
 import path from "path";
 import ejs from "ejs";
 import type { SignOptions, JwtPayload } from "jsonwebtoken";
+import { jwtUtils } from "../../utils/jwt.js";
+import config from "../../config/index.js";
 
 
 import type {
+	IChangePasswordPayload,
 	ICompleteProfilePayload,
 	IForgotPasswordPayload,
 	IGoogleLoginPayload,
@@ -16,13 +19,11 @@ import type {
 	IResetPasswordPayload,
 	IVerifyEmailPayload,
 } from "./auth.interface.js";
-import { AppError } from "../../utils/AppError.js";
 import { prisma } from "../../lib/prisma.js";
-import { AuthProvider, Role, UserStatus } from "../../../generated/prisma/enums.js";
-import { jwtUtils } from "../../utils/jwt.js";
-import config from "../../config/index.js";
+import { AppError } from "../../utils/AppError.js";
 import { redisClient } from "../../lib/redis.js";
 import { transporter } from "../../lib/nodmailer.js";
+import { AuthProvider, Role, UserStatus } from "../../../generated/prisma/enums.js";
 import { googleClient } from "../../lib/googleAuth.js";
 
 const OTP_TTL_SECONDS = 5 * 60;
@@ -187,7 +188,9 @@ const loginUser = async (payload: ILoginUserPayload) => {
 	if (!user.password) {
 		throw new AppError(
 			httpStatus.CONFLICT,
-			"This account uses Google sign-in. Please log in with Google.",
+			user.authProvider === "GOOGLE"
+				? "This account uses Google sign-in. Please log in with Google."
+				: "No password set yet — your application may still be pending review.",
 		);
 	}
 
@@ -199,7 +202,7 @@ const loginUser = async (payload: ILoginUserPayload) => {
 		throw new AppError(httpStatus.UNAUTHORIZED, "Invalid credentials");
 	}
 
-	return issueTokenPair(user);
+	return { ...issueTokenPair(user), needPasswordChange: user.needPasswordChange };
 };
 
 const getMe = async (user: IRequestUser) => {
@@ -376,6 +379,37 @@ const resetPassword = async (payload: IResetPasswordPayload) => {
 	await redisClient.del([key]);
 };
 
+const changePassword = async (
+	user: IRequestUser,
+	payload: IChangePasswordPayload,
+) => {
+	const found = await prisma.user.findUnique({ where: { id: user.userId } });
+	if (!found) {
+		throw new AppError(httpStatus.NOT_FOUND, "User not found");
+	}
+	if (!found.password) {
+		throw new AppError(httpStatus.CONFLICT, "This account uses Google sign-in");
+	}
+
+	const isOldPasswordMatched = await bcrypt.compare(
+		payload.oldPassword,
+		found.password,
+	);
+	if (!isOldPasswordMatched) {
+		throw new AppError(httpStatus.UNAUTHORIZED, "Old password is incorrect");
+	}
+
+	const hashedNewPassword = await bcrypt.hash(
+		payload.newPassword,
+		Number(config.bcrypt_salt_rounds),
+	);
+
+	await prisma.user.update({
+		where: { id: user.userId },
+		data: { password: hashedNewPassword, needPasswordChange: false },
+	});
+};
+
 export const AuthService = {
 	registerStudent,
 	verifyStudentEmail,
@@ -386,4 +420,5 @@ export const AuthService = {
 	completeProfile,
 	forgotPassword,
 	resetPassword,
+	changePassword,
 };
