@@ -6,6 +6,8 @@ import { ICreateSemesterPayload, IUpdateSemesterStatusPayload } from "./semester
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { SemesterStatus } from "../../../generated/prisma/enums.js";
+import { IQuary } from "../../interface/index.js";
+import { SemesterWhereInput } from "../../../generated/prisma/models.js";
 
 
 const createSemester = async (payload: ICreateSemesterPayload) => {
@@ -37,15 +39,101 @@ const createSemester = async (payload: ICreateSemesterPayload) => {
 	});
 };
 
-const getAllSemesters = async () => {
-	return prisma.semester.findMany({
-		orderBy: [
-            {
-                 year: "desc" }, {
-                     term: "asc" }],
-	});
-};
+const getAllSemesters = async (query: IQuary) => {
+	const limit = query.limit ? Number(query.limit) : 10;
+	const page = query.page ? Number(query.page) : 1;
+	const skip = (page - 1) * limit;
 
+	const sortBy = query.sortBy || "year";
+	const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
+
+	const andConditions: SemesterWhereInput[] = [];
+
+	
+	if (query.searchTerm) {
+		andConditions.push({
+			OR: [
+				{
+					name: {
+						contains: query.searchTerm,
+						mode: "insensitive",
+					},
+				},
+				{
+					term: {
+						contains: query.searchTerm,
+						mode: "insensitive",
+					},
+				},
+			],
+		});
+	}
+
+
+	if (query.year) {
+		andConditions.push({
+			year: Number(query.year),
+		});
+	}
+
+	
+	if (query.term) {
+		andConditions.push({
+			term: {
+				equals: query.term,
+				mode: "insensitive",
+			},
+		});
+	}
+
+
+	if (query.status) {
+		andConditions.push({
+			status: query.status,
+		});
+	}
+
+
+	const semesters = await prisma.semester.findMany({
+		where: {
+			AND: andConditions.length > 0 ? andConditions : undefined,
+		},
+
+		take: limit,
+		skip,
+
+		orderBy: {
+			[sortBy]: sortOrder,
+		},
+
+		include: {
+			_count: {
+				select: {
+					sections: true,
+					fees: true,
+				},
+			},
+		},
+	});
+
+
+	const totalSemesterCount = await prisma.semester.count({
+		where: {
+			AND: andConditions.length > 0 ? andConditions : undefined,
+		},
+	});
+
+	return {
+		data: semesters,
+
+		meta: {
+			page,
+			limit,
+			total: totalSemesterCount,
+			totalPages: Math.ceil(totalSemesterCount / limit),
+		},
+	};
+};
 const getSemesterById = async (id: string) => {
 	const semester = await prisma.semester.findUnique({
          where: {

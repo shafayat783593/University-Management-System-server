@@ -1,8 +1,10 @@
 import httpStatus from "http-status";
-import { ICreateSectionPayload, ISectionFilters, IUpdateSectionPayload } from "./section.interface.js";
+import { ICreateSectionPayload, ISectionquery, IUpdateSectionPayload } from "./section.interface.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { InstructorApplicationStatus } from "../../../generated/prisma/enums.js";
+import { IQuary } from "../../interface/index.js";
+import { SectionWhereInput } from "../../../generated/prisma/models.js";
 
 
 const createSection = async (payload: ICreateSectionPayload) => {
@@ -10,7 +12,9 @@ const createSection = async (payload: ICreateSectionPayload) => {
 		prisma.course.findUnique({ where: { id: payload.courseId } }),
 		prisma.semester.findUnique({ where: { id: payload.semesterId } }),
 		prisma.instructorProfile.findUnique({
-			where: { id: payload.instructorId },
+			where: {
+				 id: payload.instructorId
+				 },
 		}),
 	]);
 
@@ -44,19 +48,125 @@ const createSection = async (payload: ICreateSectionPayload) => {
 	});
 };
 
-const getAllSections = async (filters: ISectionFilters) => {
-	return prisma.section.findMany({
+const getAllSections = async (query:IQuary) => {
+	const limit = query.limit ? Number(query.limit) : 10;
+	const page = query.page ? Number(query.page) : 1;
+	const skip = (page - 1) * limit;
+
+	const sortBy = query.sortBy || "createdAt";
+	const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
+
+	const andConditions: SectionWhereInput[] = [];
+
+	
+	if (query.semesterId) {
+		andConditions.push({
+			semesterId: query.semesterId,
+		});
+	}
+
+	
+	if (query.courseId) {
+		andConditions.push({
+			courseId: query.courseId,
+		});
+	}
+
+	
+	if (query.instructorId) {
+		andConditions.push({
+			instructorId: query.instructorId,
+		});
+	}
+
+
+	if (query.searchTerm) {
+		andConditions.push({
+			OR: [
+				{
+					schedule: {
+						contains: query.searchTerm,
+						mode: "insensitive",
+					},
+				},
+				{
+					course: {
+						OR: [
+							{
+								code: {
+									contains: query.searchTerm,
+									mode: "insensitive",
+								},
+							},
+							{
+								title: {
+									contains: query.searchTerm,
+									mode: "insensitive",
+								},
+							},
+						],
+					},
+				},
+			],
+		});
+	}
+
+	
+	const sections = await prisma.section.findMany({
 		where: {
-			semesterId: filters.semesterId,
-			courseId: filters.courseId,
+			AND: andConditions.length > 0 ? andConditions : undefined,
 		},
+
+		take: limit,
+		skip,
+
+		orderBy: {
+			[sortBy]: sortOrder,
+		},
+
 		include: {
 			course: true,
 			semester: true,
-			instructor: { include: { user: true } },
+
+			instructor: {
+				include: {
+					user: {
+						omit: {
+							password: true,
+						},
+					},
+				},
+			},
+
+			_count: {
+				select: {
+					enrollments: true,
+					attendanceSessions: true,
+					exams: true,
+				},
+			},
 		},
-		orderBy: { createdAt: "desc" },
 	});
+
+	// =========================
+	// Total count
+	// =========================
+	const totalSectionCount = await prisma.section.count({
+		where: {
+			AND: andConditions.length > 0 ? andConditions : undefined,
+		},
+	});
+
+	return {
+		data: sections,
+
+		meta: {
+			page,
+			limit,
+			total: totalSectionCount,
+			totalPages: Math.ceil(totalSectionCount / limit),
+		},
+	};
 };
 
 const getSectionById = async (id: string) => {

@@ -18,12 +18,14 @@ const createSemester = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getAllSemesters = catchAsync(async (req:Request, res:Response) => {
-	const result = await SemesterService.getAllSemesters();
+    const quary = req.query
+	const {data,meta} = await SemesterService.getAllSemesters(quary);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
 		message: "Semesters retrieved",
-		data: result,
+		data: data,
+        meta:meta
 	});
 });
 

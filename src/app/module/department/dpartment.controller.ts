@@ -16,7 +16,8 @@ const createDepartment = catchAsync(async (req:Request, res:Response) => {
 });
 
 const getAllDepartments = catchAsync(async (req:Request, res:Response) => {
-	const result = await DepartmentService.getAllDepartments();
+	const quary = req.query
+	const result = await DepartmentService.getAllDepartments(quary);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,

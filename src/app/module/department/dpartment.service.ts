@@ -5,6 +5,8 @@ import {
 } from "./dpartment.interface.js";
 import { AppError } from "../../utils/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { IQuary } from "../../interface/index.js";
+import { DepartmentWhereInput } from "../../../generated/prisma/models.js";
 
 const createDepartment = async (payload: ICreateDepartmentPayload) => {
 	const existing = await prisma.department.findFirst({
@@ -30,12 +32,83 @@ const createDepartment = async (payload: ICreateDepartmentPayload) => {
 	});
 };
 
-const getAllDepartments = async () => {
-	return prisma.department.findMany({
+const getAllDepartments = async (query: IQuary) => {
+	const limit = query.limit ? Number(query.limit) : 10;
+	const page = query.page ? Number(query.page) : 1;
+	const skip = (page - 1) * limit;
+
+	const sortBy = query.sortBy || "createdAt";
+	const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
+
+	const andConditions: DepartmentWhereInput[] = [];
+
+	// =========================
+	// Search by name or code
+	// =========================
+	if (query.searchTerm) {
+		andConditions.push({
+			OR: [
+				{
+					name: {
+						contains: query.searchTerm,
+						mode: "insensitive",
+					},
+				},
+				{
+					code: {
+						contains: query.searchTerm,
+						mode: "insensitive",
+					},
+				},
+			],
+		});
+	}
+
+	// =========================
+	// Get departments
+	// =========================
+	const departments = await prisma.department.findMany({
+		where: {
+			AND: andConditions.length > 0 ? andConditions : undefined,
+		},
+
+		take: limit,
+		skip: skip,
+
 		orderBy: {
-			name: "asc",
+			[sortBy]: sortOrder,
+		},
+
+		include: {
+			_count: {
+				select: {
+					courses: true,
+					students: true,
+					instructors: true,
+				},
+			},
 		},
 	});
+
+	// =========================
+	// Total count
+	// =========================
+	const totalDepartmentCount = await prisma.department.count({
+		where: {
+			AND: andConditions.length > 0 ? andConditions : undefined,
+		},
+	});
+
+	return {
+		data: departments,
+
+		meta: {
+			page,
+			limit,
+			total: totalDepartmentCount,
+			totalPages: Math.ceil(totalDepartmentCount / limit),
+		},
+	};
 };
 
 const getDepartmentById = async (id: string) => {
