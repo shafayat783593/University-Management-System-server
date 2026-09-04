@@ -3,6 +3,7 @@ import config from "./app/config/index.js";
 import { transporter } from "./app/lib/nodmailer.js";
 import { prisma } from "./app/lib/prisma.js";
 import { redisClient } from "./app/lib/redis.js";
+import { seedTesterAdmin } from "./app/utils/seeds.js";
 
 
 
@@ -22,7 +23,7 @@ const main = async () => {
 		console.log("Notemailer Connected successfully")
 		// await seedSuperAdmin()
 		// await seedTesterDoctor()
-		// await seedTesterAdmin()
+		await seedTesterAdmin()
 		// await deleteUnverifiedAndRejectedDoctors()
 		app.listen(PORT, () => {
 			console.log(`Server is running on port ${PORT}`);

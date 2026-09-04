@@ -17,16 +17,16 @@ import { CourseRoutes } from "./app/module/course/course.route.js";
 import { SemesterRoutes } from "./app/module/semester/semester.route.js";
 import { SectionRoutes } from "./app/module/section/section.route.js";
 import { EnrollmentRoutes } from "./app/module/enrollment/enrollment.route.js";
-import { AttendanceRoutes } from "./app/module/attendance/attendance.route.js";
-import { ExamRoutes } from "./app/module/exam/exam.route.js";
-import { ResultRoutes } from "./app/module/result/result.route.js";
-import { FeeRoutes } from "./app/module/fee/fee.route.js";
+
 import { PaymentRoutes } from "./app/module/payment/payment.route.js";
 import { AuthRoutes } from "./app/module/auth/auth.routes.js";
 import { InstructorRoutes } from "./app/module/Instructor/Instructor.route.js";
 import { DepartmentRoutes } from "./app/module/department/dpartment.route.js";
 import { notFound } from "./app/middleware/notFound.js";
 import { globalErrorHandler } from "./app/middleware/globalErrorHandler.js";
+import { ExamRoutes } from "./app/module/exam/exam.route.js";
+import { ResultRoutes } from "./app/module/result/result.route.js";
+import { FeeRoutes } from "./app/module/Fee/free.route.js";
 
 const app: Application = express();
 
@@ -76,7 +76,7 @@ app.use("/api/v1/courses", CourseRoutes);
 app.use("/api/v1/semesters", SemesterRoutes);
 app.use("/api/v1/sections", SectionRoutes);
 app.use("/api/v1/enrollments", EnrollmentRoutes);
-app.use("/api/v1/attendance", AttendanceRoutes);
+// app.use("/api/v1/attendance", AttendanceRoutes);
 app.use("/api/v1/exams", ExamRoutes);
 app.use("/api/v1/results", ResultRoutes);
 app.use("/api/v1/fees", FeeRoutes);
