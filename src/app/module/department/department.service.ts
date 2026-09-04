@@ -2,7 +2,7 @@ import httpStatus from "http-status";
 import {
 	ICreateDepartmentPayload,
 	IUpdateDepartmentPayload,
-} from "./dpartment.interface.js";
+} from "./department.interface.js";
 import { AppError } from "../../utils/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 import { IQuary } from "../../interface/index.js";

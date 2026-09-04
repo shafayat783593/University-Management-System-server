@@ -2,7 +2,7 @@ import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums.js";
 import { auth } from "../../middleware/auth.js";
 import { validateRequest } from "../../middleware/validateRequest.js";
-import { ResultValidation } from "./validation.validation.js";
+import { ResultValidation } from "./validation.result.js";
 import { ResultController } from "./result.controller.js";
 
 

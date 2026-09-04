@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { upload } from "../../lib/multer.js";
 import { validateRequest } from "../../middleware/validateRequest.js";
-import { InstructorValidation } from "./Instructor.viladation.js";
 import { auth } from "../../middleware/auth.js";
-import { InstructorController } from "./Instructor.controller.js";
 import { Role } from "../../../generated/prisma/enums.js";
+import { InstructorValidation } from "./instructor.viladation.js";
+import { InstructorController } from "./instructor.controller.js";
+
 
 
 

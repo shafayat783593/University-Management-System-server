@@ -9,7 +9,6 @@ import config from "../../config/index.js";
 
 
 import type {
-	IChangePasswordPayload,
 	ICompleteProfilePayload,
 	IForgotPasswordPayload,
 	IGoogleLoginPayload,
@@ -24,48 +23,11 @@ import { AppError } from "../../utils/AppError.js";
 import { redisClient } from "../../lib/redis.js";
 import { transporter } from "../../lib/nodmailer.js";
 import { AuthProvider, Role, UserStatus } from "../../../generated/prisma/enums.js";
+import type { UserModel } from "../../../generated/prisma/models/User.js";
 import { googleClient } from "../../lib/googleAuth.js";
 
 const OTP_TTL_SECONDS = 5 * 60;
 
-const issueTokenPair = (user: {
-	id: string;
-	name: string;
-	email: string;
-	role: Role;
-}) => {
-	const jwtPayload = {
-		userId: user.id,
-		name: user.name,
-		email: user.email,
-		role: user.role,
-	};
-
-	const accessToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_access_secret,
-		config.jwt_access_expires_in as SignOptions,
-	);
-	const refreshToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_refresh_secret,
-		config.jwt_refresh_expires_in as SignOptions,
-	);
-
-	return { accessToken, refreshToken };
-};
-
-const assertUserIsUsable = (user: {
-	status: UserStatus;
-	isDeleted: boolean;
-}) => {
-	if (user.status === UserStatus.BLOCKED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
-	}
-	if (user.isDeleted || user.status === UserStatus.DELETED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
-	}
-};
 
 const registerStudent = async (payload: IRegisterStudentPayload) => {
 	const email = payload.email.trim().toLowerCase();
@@ -172,8 +134,28 @@ const verifyStudentEmail = async (payload: IVerifyEmailPayload) => {
 	});
 
 	await redisClient.del([otpKey, dataKey]);
+	const jwtPayload = {
+		userId: createdUser.id,
+		name: createdUser.name,
+		email: createdUser.email,
+		role: createdUser.role,
+	};
 
-	return issueTokenPair(createdUser);
+	const accessToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_access_secret,
+		config.jwt_access_expires_in as SignOptions,
+	);
+	const refreshToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_refresh_secret,
+		config.jwt_refresh_expires_in as SignOptions,
+	);
+
+	return {
+		refreshToken,
+		accessToken
+	}
 };
 
 const loginUser = async (payload: ILoginUserPayload) => {
@@ -183,7 +165,12 @@ const loginUser = async (payload: ILoginUserPayload) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-	assertUserIsUsable(user);
+		if (user.status === UserStatus.BLOCKED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
+	}
+	if (user.isDeleted || user.status === UserStatus.DELETED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
+	}
 
 	if (!user.password) {
 		throw new AppError(
@@ -202,7 +189,25 @@ const loginUser = async (payload: ILoginUserPayload) => {
 		throw new AppError(httpStatus.UNAUTHORIZED, "Invalid credentials");
 	}
 
-	return { ...issueTokenPair(user), needPasswordChange: user.needPasswordChange };
+	const jwtPayload = {
+		userId: user.id,
+		name: user.name,
+		email: user.email,
+		role: user.role,
+	};
+
+	const accessToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_access_secret,
+		config.jwt_access_expires_in as SignOptions,
+	);
+	const refreshToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_refresh_secret,
+		config.jwt_refresh_expires_in as SignOptions,
+	);
+
+	return { accessToken, refreshToken, needPasswordChange:user.needPasswordChange };
 };
 
 const getMe = async (user: IRequestUser) => {
@@ -228,56 +233,150 @@ const refreshToken = async (token: string) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-	assertUserIsUsable(user);
+		if (user.status === UserStatus.BLOCKED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
+	}
+	if (user.isDeleted || user.status === UserStatus.DELETED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
+	}
 
-	return issueTokenPair(user);
+
+	const jwtPayload = {
+		userId: user.id,
+		name: user.name,
+		email: user.email,
+		role: user.role,
+	};
+
+	const accessToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_access_secret,
+		config.jwt_access_expires_in as SignOptions,
+	);
+	const refreshToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_refresh_secret,
+		config.jwt_refresh_expires_in as SignOptions,
+	);
+	return { accessToken, refreshToken };
 };
 
 
 const googleLogin = async (payload: IGoogleLoginPayload) => {
-	let tokenPayload;
+	let googleTokenPayload: {
+		email?: string;
+		name?: string;
+		sub?: string;
+	} | null | undefined;
+
 	try {
 		const ticket = await googleClient.verifyIdToken({
 			idToken: payload.idToken,
 			audience: config.google_client_id,
 		});
-		tokenPayload = ticket.getPayload();
-	} catch {
+		googleTokenPayload = ticket.getPayload();
+	} catch (error) {
+		console.log("Google ID token verification failed:", error);
 		throw new AppError(
 			httpStatus.UNAUTHORIZED,
 			"Invalid or expired Google ID token",
 		);
 	}
 
-	if (!tokenPayload?.email) {
-		throw new AppError(httpStatus.BAD_REQUEST, "Google account has no email");
+	if (!googleTokenPayload) {
+		throw new AppError(
+			httpStatus.UNAUTHORIZED,
+			"Invalid or expired Google ID token",
+		);
 	}
 
-	const email = tokenPayload.email.trim().toLowerCase();
-	let user = await prisma.user.findUnique({ where: { email } });
+	const googleEmail = googleTokenPayload.email;
+	const googleName = googleTokenPayload.name;
+	if (!googleEmail) {
+		throw new AppError(httpStatus.BAD_REQUEST, "Google email not found");
+	}
+	if (!googleName) {
+		throw new AppError(httpStatus.BAD_REQUEST, "Google name not found");
+	}
 
-	if (!user) {
+	const email = googleEmail.trim().toLowerCase();
+	const existing = await prisma.user.findUnique({ where: { email } });
+
+	// Google login is only allowed for student accounts.
+	let user: UserModel;
+
+	if (existing) {
+		if (existing.role !== Role.STUDENT) {
+			throw new AppError(
+				httpStatus.FORBIDDEN,
+				"This email is registered as a non-student account",
+			);
+		}
+
+		if (existing.authProvider === AuthProvider.GOOGLE) {
+			// Already a Google student — normal returning login.
+			user = existing;
+		} else {
+			// Student registered with credentials; link this Google account.
+			if (!existing.emailVerified) {
+				throw new AppError(httpStatus.FORBIDDEN, "Email not verified");
+			}
+			if (existing.status === UserStatus.BLOCKED) {
+				throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
+			}
+			if (existing.isDeleted || existing.status === UserStatus.DELETED) {
+				throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
+			}
+			user = await prisma.user.update({
+				where: { id: existing.id },
+				data: {
+					googleId: googleTokenPayload.sub,
+					authProvider: AuthProvider.GOOGLE,
+					emailVerified: true,
+				},
+			});
+		}
+
+		if (user.status === UserStatus.BLOCKED) {
+			throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
+		}
+		if (user.isDeleted || user.status === UserStatus.DELETED) {
+			throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
+		}
+	} else {
+		// Brand-new student via Google. No studentProfile is created here
+		// (department + studentIdCode are unknown from Google) — it is
+		// completed through the normal profile-completion flow afterwards.
 		user = await prisma.user.create({
 			data: {
-				name: tokenPayload.name ?? email,
+				name: googleName,
 				email,
 				role: Role.STUDENT,
 				authProvider: AuthProvider.GOOGLE,
-				googleId: tokenPayload.sub,
+				googleId: googleTokenPayload.sub,
 				emailVerified: true,
 			},
 		});
-	} else {
-		assertUserIsUsable(user);
-		if (!user.googleId) {
-			user = await prisma.user.update({
-				where: { id: user.id },
-				data: { googleId: tokenPayload.sub },
-			});
-		}
 	}
 
-	return issueTokenPair(user);
+	const jwtPayload = {
+		userId: user.id,
+		name: user.name,
+		email: user.email,
+		role: user.role,
+	};
+
+	const accessToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_access_secret,
+		config.jwt_access_expires_in as SignOptions,
+	);
+	const refreshToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_refresh_secret,
+		config.jwt_refresh_expires_in as SignOptions,
+	);
+	return { accessToken, refreshToken };
 };
 
 const completeProfile = async (
@@ -314,8 +413,12 @@ const forgotPassword = async (payload: IForgotPasswordPayload) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-	assertUserIsUsable(user);
-	if (!user.password) {
+	if (user.status === UserStatus.BLOCKED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
+	}
+	if (user.isDeleted || user.status === UserStatus.DELETED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
+	}	if (!user.password) {
 		throw new AppError(httpStatus.CONFLICT, "This account uses Google sign-in");
 	}
 
@@ -349,8 +452,12 @@ const resetPassword = async (payload: IResetPasswordPayload) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-	assertUserIsUsable(user);
-
+	if (user.status === UserStatus.BLOCKED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
+	}
+	if (user.isDeleted || user.status === UserStatus.DELETED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
+	}
 	const key = `forgot-password-otp:${email}`;
 	const storedOtp = await redisClient.get(key);
 	if (!storedOtp || storedOtp !== payload.otp) {

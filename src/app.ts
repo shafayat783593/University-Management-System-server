@@ -19,14 +19,15 @@ import { SectionRoutes } from "./app/module/section/section.route.js";
 import { EnrollmentRoutes } from "./app/module/enrollment/enrollment.route.js";
 
 import { PaymentRoutes } from "./app/module/payment/payment.route.js";
-import { AuthRoutes } from "./app/module/auth/auth.routes.js";
-import { InstructorRoutes } from "./app/module/Instructor/Instructor.route.js";
-import { DepartmentRoutes } from "./app/module/department/dpartment.route.js";
+import { AuthRoutes } from "./app/module/auth/auth.route.js";
+import { InstructorRoutes } from "./app/module/instructor/instructor.route.js";
+import { DepartmentRoutes } from "./app/module/department/department.route.js";
 import { notFound } from "./app/middleware/notFound.js";
 import { globalErrorHandler } from "./app/middleware/globalErrorHandler.js";
 import { ExamRoutes } from "./app/module/exam/exam.route.js";
 import { ResultRoutes } from "./app/module/result/result.route.js";
-import { FeeRoutes } from "./app/module/Fee/free.route.js";
+import { FeeRoutes } from "./app/module/fee/free.route.js";
+import { TranscriptRoutes } from "./app/module/transcript/transcript.route.js";
 
 const app: Application = express();
 
@@ -81,6 +82,7 @@ app.use("/api/v1/exams", ExamRoutes);
 app.use("/api/v1/results", ResultRoutes);
 app.use("/api/v1/fees", FeeRoutes);
 app.use("/api/v1/payments", PaymentRoutes);
+app.use("/api/v1/transcript", TranscriptRoutes);
 
 // notFound must come after every real route (so unmatched paths reach
 // it) and BEFORE globalErrorHandler (so the 404 error it raises has

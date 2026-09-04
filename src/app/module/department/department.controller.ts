@@ -2,7 +2,7 @@ import httpStatus from "http-status";
 
 import { Request, Response } from "express";
 import { catchAsync } from "../../utils/catchAsync.js";
-import { DepartmentService } from "./dpartment.service.js";
+import { DepartmentService } from "./department.service.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 
 const createDepartment = catchAsync(async (req:Request, res:Response) => {

@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import httpStatus from "http-status";
 import { sendResponse } from "../../utils/sendResponse.js";
 import { catchAsync } from "../../utils/catchAsync.js";
-import { InstructorService } from "./Instructor.service.js";
+import { InstructorService } from "./instructor.service.js";
 
 const applyAsInstructor = catchAsync(async (req: Request, res: Response) => {
 	const resume = req.file as Express.Multer.File | undefined;

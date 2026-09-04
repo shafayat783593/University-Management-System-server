@@ -16,13 +16,10 @@ import {
 } from "../../../generated/prisma/enums.js";
 import { transporter } from "../../lib/nodmailer.js";
 import config from "../../config/index.js";
-import {
-	IApplyAsInstructorPayload,
-	IReviewInstructorPayload,
-	IVerifyInstructorEmailPayload,
-} from "./Instructor.interface.js";
+
 import { IQuary } from "../../interface/index.js";
 import { InstructorProfileWhereInput } from "../../../generated/prisma/models.js";
+import { IApplyAsInstructorPayload, IReviewInstructorPayload, IVerifyInstructorEmailPayload } from "./instructor.interface.js";
 
 const OTP_TTL_SECONDS = 60 * 60;
 
