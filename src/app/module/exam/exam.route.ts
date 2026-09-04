@@ -6,7 +6,7 @@ import { auth } from "../../middleware/auth.js";
 import { Role } from "../../../generated/prisma/enums.js";
 import { validateRequest } from "../../middleware/validateRequest.js";
 import { ExamValidation } from "./exam.validation.js";
-import { ExamController } from "./Exam.controller.js";
+import { ExamController } from "./exam.controller.js";
 
 
 const router = Router();

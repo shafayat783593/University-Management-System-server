@@ -69,7 +69,7 @@ app.get("/test/bkash-token", async (req: Request, res: Response, next: NextFunct
 });
 
 app.use("/api/v1/auth", AuthRoutes);
-app.use("/api/v1/users", UserRoutes);
+// app.use("/api/v1/users", UserRoutes);
 app.use("/api/v1/instructors", InstructorRoutes);
 app.use("/api/v1/departments", DepartmentRoutes);
 app.use("/api/v1/courses", CourseRoutes);
