@@ -106,7 +106,7 @@ const applyAsInstructor = async (
 		otp,
 		expirationMinutes: OTP_TTL_SECONDS / 60,
 	});
-
+ 
 	await transporter.sendMail({
 		from: config.email_sender,
 		to: email,
@@ -231,27 +231,37 @@ const reviewInstructorApplication = async (
 			},
 		});
 
+				const templatePath = path.join(
+			process.cwd(),
+			"src/app/templates/instructor-approved.ejs",
+		);
+		const html = await ejs.renderFile(templatePath, {
+			name: updatedProfile.user.name,
+			email: updatedProfile.user.email,
+			tempPassword,
+		});
+ 
 		await transporter.sendMail({
 			from: config.email_sender,
 			to: updatedProfile.user.email,
 			subject: "Your instructor application has been approved",
-			html: `
-				<p>Hi ${updatedProfile.user.name},</p>
-				<p>Your instructor application has been approved.</p>
-				<p><b>Email:</b> ${updatedProfile.user.email}<br/><b>Temporary password:</b> ${tempPassword}</p>
-				<p>Log in and change this password immediately (PATCH /auth/change-password) — it will not be shown again.</p>
-			`,
+			html,
 		});
 	} else {
+		const templatePath = path.join(
+			process.cwd(),
+			"src/app/templates/instructor-rejected.ejs",
+		);
+		const html = await ejs.renderFile(templatePath, {
+			name: updatedProfile.user.name,
+			reason: updatedProfile.rejectionReason,
+		});
+ 
 		await transporter.sendMail({
 			from: config.email_sender,
 			to: updatedProfile.user.email,
 			subject: "Your instructor application has been rejected",
-			html: `
-				<p>Hi ${updatedProfile.user.name},</p>
-				<p>Unfortunately your application was not approved.</p>
-				<p>Reason: ${updatedProfile.rejectionReason}</p>
-			`,
+			html,
 		});
 	}
 

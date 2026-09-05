@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Verify your email — Instructor application</title>
+<title>Verify your email</title>
 </head>
 <body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
 	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
@@ -13,9 +13,15 @@
 
 					<!-- Header -->
 					<tr>
-						<td style="background:linear-gradient(135deg, #0EA5E9 0%, #6366F1 60%, #8B5CF6 100%); padding:36px 40px;">
-							<span style="display:inline-block; background-color:rgba(255,255,255,0.18); color:#ffffff; font-size:12px; font-weight:600; letter-spacing:1px; padding:6px 14px; border-radius:999px; text-transform:uppercase;">Instructor Application</span>
-							<h1 style="margin:18px 0 0; color:#ffffff; font-size:24px; font-weight:700;">Verify your email</h1>
+						<td style="background:linear-gradient(135deg, #6366F1 0%, #8B5CF6 55%, #A855F7 100%); padding:36px 40px;">
+							<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+								<tr>
+									<td>
+										<span style="display:inline-block; background-color:rgba(255,255,255,0.18); color:#ffffff; font-size:12px; font-weight:600; letter-spacing:1px; padding:6px 14px; border-radius:999px; text-transform:uppercase;">University Management System</span>
+										<h1 style="margin:18px 0 0; color:#ffffff; font-size:24px; font-weight:700;">Verify your email</h1>
+									</td>
+								</tr>
+							</table>
 						</td>
 					</tr>
 
@@ -24,28 +30,22 @@
 						<td style="padding:40px;">
 							<p style="margin:0 0 8px; color:#0f172a; font-size:16px;">Hi <b><%= name %></b>,</p>
 							<p style="margin:0 0 28px; color:#475569; font-size:15px; line-height:1.6;">
-								We received your application to join as an Instructor. Verify your email with the code below to move your application into review.
+								Thanks for registering as a student. Use the one-time code below to verify your email address and complete your registration.
 							</p>
 
 							<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
 								<tr>
 									<td align="center" style="padding:8px 0 28px;">
-										<div style="display:inline-block; background-color:#EFF6FF; border:1.5px dashed #60A5FA; border-radius:12px; padding:18px 36px;">
-											<span style="font-size:34px; font-weight:700; letter-spacing:10px; color:#1D4ED8;"><%= otp %></span>
+										<div style="display:inline-block; background-color:#EEF2FF; border:1.5px dashed #818CF8; border-radius:12px; padding:18px 36px;">
+											<span style="font-size:34px; font-weight:700; letter-spacing:10px; color:#4338CA;"><%= otp %></span>
 										</div>
 									</td>
 								</tr>
 							</table>
 
 							<p style="margin:0 0 6px; color:#475569; font-size:14px; line-height:1.6;">
-								This code expires in <b><%= expirationMinutes %> minutes</b>.
+								This code expires in <b><%= expirationMinutes %> minutes</b>. If you didn't request this, you can safely ignore this email.
 							</p>
-
-							<div style="margin-top:24px; padding:16px 18px; background-color:#F8FAFC; border-left:4px solid #6366F1; border-radius:8px;">
-								<p style="margin:0; color:#475569; font-size:13px; line-height:1.6;">
-									<b>What happens next?</b> Once verified, an administrator will review your application and resume. You'll get another email with next steps once a decision is made.
-								</p>
-							</div>
 						</td>
 					</tr>
 

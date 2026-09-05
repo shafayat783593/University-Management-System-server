@@ -42,31 +42,36 @@ const getAllDepartments = async (query: IQuary) => {
 
 	const andConditions: DepartmentWhereInput[] = [];
 
-	// =========================
-	// Search by name or code
-	// =========================
+	
 	if (query.searchTerm) {
-		andConditions.push({
-			OR: [
-				{
-					name: {
-						contains: query.searchTerm,
-						mode: "insensitive",
-					},
+	andConditions.push({
+		OR: [
+			{
+				name: {
+					contains: query.searchTerm,
+					mode: "insensitive",
 				},
-				{
-					code: {
-						contains: query.searchTerm,
-						mode: "insensitive",
-					},
+			},
+			{
+				code: {
+					contains: query.searchTerm,
+					mode: "insensitive",
 				},
-			],
-		});
-	}
+			},
+		],
+	});
+}
 
-	// =========================
-	// Get departments
-	// =========================
+
+
+	if (query.code) {
+	andConditions.push({
+		code: {
+			equals: query.code,
+			mode: "insensitive",
+		},
+	});
+}
 	const departments = await prisma.department.findMany({
 		where: {
 			AND: andConditions.length > 0 ? andConditions : undefined,
@@ -90,9 +95,6 @@ const getAllDepartments = async (query: IQuary) => {
 		},
 	});
 
-	// =========================
-	// Total count
-	// =========================
 	const totalDepartmentCount = await prisma.department.count({
 		where: {
 			AND: andConditions.length > 0 ? andConditions : undefined,

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Application update</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
+		<tr>
+			<td align="center">
+				<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(15, 23, 42, 0.08);">
+
+					<!-- Header -->
+					<tr>
+						<td style="background:linear-gradient(135deg, #64748B 0%, #475569 60%, #334155 100%); padding:36px 40px;">
+							<span style="display:inline-block; background-color:rgba(255,255,255,0.18); color:#ffffff; font-size:12px; font-weight:600; letter-spacing:1px; padding:6px 14px; border-radius:999px; text-transform:uppercase;">Application Update</span>
+							<h1 style="margin:18px 0 0; color:#ffffff; font-size:24px; font-weight:700;">Your application status</h1>
+						</td>
+					</tr>
+
+					<!-- Body -->
+					<tr>
+						<td style="padding:40px;">
+							<p style="margin:0 0 8px; color:#0f172a; font-size:16px;">Hi <b><%= name %></b>,</p>
+							<p style="margin:0 0 24px; color:#475569; font-size:15px; line-height:1.6;">
+								Thank you for applying to join as an Instructor. After review, we're unable to approve your application at this time.
+							</p>
+
+							<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FEF2F2; border:1px solid #FECACA; border-radius:12px;">
+								<tr>
+									<td style="padding:18px 22px;">
+										<p style="margin:0 0 4px; color:#991B1B; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Reason</p>
+										<p style="margin:0; color:#7F1D1D; font-size:14px; line-height:1.6;"><%= reason %></p>
+									</td>
+								</tr>
+							</table>
+
+							<p style="margin:24px 0 0; color:#475569; font-size:14px; line-height:1.6;">
+								If you believe this was a mistake or would like to reapply with updated information, please get in touch with the administration office.
+							</p>
+						</td>
+					</tr>
+
+					<!-- Footer -->
+					<tr>
+						<td style="padding:24px 40px; background-color:#f8fafc; border-top:1px solid #e2e8f0;">
+							<p style="margin:0; color:#94a3b8; font-size:12px; text-align:center;">
+								&copy; University Management System. This is an automated message — please don't reply.
+							</p>
+						</td>
+					</tr>
+
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>

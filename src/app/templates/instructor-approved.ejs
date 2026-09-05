@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Application approved</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
+		<tr>
+			<td align="center">
+				<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(15, 23, 42, 0.08);">
+
+					<!-- Header -->
+					<tr>
+						<td style="background:linear-gradient(135deg, #10B981 0%, #059669 60%, #047857 100%); padding:36px 40px;">
+							<span style="display:inline-block; background-color:rgba(255,255,255,0.2); color:#ffffff; font-size:12px; font-weight:600; letter-spacing:1px; padding:6px 14px; border-radius:999px; text-transform:uppercase;">Application Approved</span>
+							<h1 style="margin:18px 0 0; color:#ffffff; font-size:24px; font-weight:700;">Welcome aboard, <%= name %> 🎉</h1>
+						</td>
+					</tr>
+
+					<!-- Body -->
+					<tr>
+						<td style="padding:40px;">
+							<p style="margin:0 0 8px; color:#0f172a; font-size:16px;">Hi <b><%= name %></b>,</p>
+							<p style="margin:0 0 28px; color:#475569; font-size:15px; line-height:1.6;">
+								Great news — your instructor application has been <b style="color:#059669;">approved</b>. Your account is ready. Use the credentials below to log in for the first time.
+							</p>
+
+							<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:12px;">
+								<tr>
+									<td style="padding:20px 24px;">
+										<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600; width:110px;">Email</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= email %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Password</td>
+												<td style="padding:6px 0;">
+													<span style="display:inline-block; background-color:#DCFCE7; color:#14532D; font-family:monospace; font-size:16px; font-weight:700; letter-spacing:1px; padding:6px 14px; border-radius:6px;"><%= tempPassword %></span>
+												</td>
+											</tr>
+										</table>
+									</td>
+								</tr>
+							</table>
+
+							<div style="margin-top:24px; padding:16px 18px; background-color:#FFFBEB; border-left:4px solid #F59E0B; border-radius:8px;">
+								<p style="margin:0; color:#92400E; font-size:13px; line-height:1.6;">
+									<b>Important:</b> This password will not be shown again. Please log in and change it immediately from your account settings.
+								</p>
+							</div>
+						</td>
+					</tr>
+
+					<!-- Footer -->
+					<tr>
+						<td style="padding:24px 40px; background-color:#f8fafc; border-top:1px solid #e2e8f0;">
+							<p style="margin:0; color:#94a3b8; font-size:12px; text-align:center;">
+								&copy; University Management System. This is an automated message — please don't reply.
+							</p>
+						</td>
+					</tr>
+
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>

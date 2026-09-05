@@ -7,6 +7,7 @@ import { InstructorService } from "./instructor.service.js";
 const applyAsInstructor = catchAsync(async (req: Request, res: Response) => {
 	const resume = req.file as Express.Multer.File | undefined;
 	const payload = req.body;
+	console.log("payload", payload,resume);
 	const result = await InstructorService.applyAsInstructor(payload, resume);
 	sendResponse(res, {
 		success: true,
