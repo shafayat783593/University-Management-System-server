@@ -23,4 +23,10 @@ router.get(
 );
 router.post("/complete-profile", auth(Role.STUDENT), AuthController.completeProfile);
 
+router.patch(
+	"/change-password",
+	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),
+	AuthController.changePassword,
+);
+
 export const AuthRoutes = router;

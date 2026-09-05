@@ -134,9 +134,7 @@ const publishExamResults = async (examId: string) => {
 		return tx.result.findMany({ where: { examId } });
 	});
 
-	// GPA depends on every exam in a section being published, so
-	// publishing this one can change the cached GPA for every affected
-	// student — invalidate rather than try to patch the cache in place.
+
 	await Promise.all(
 		updated.map((r) =>
 			redisClient

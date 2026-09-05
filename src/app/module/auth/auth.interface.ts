@@ -39,6 +39,12 @@ export interface IResetPasswordPayload {
   newPassword: string;
 }
 
+
+export interface IChangePasswordPayload {
+  oldPassword: string;
+  newPassword: string;
+}
+
 export interface IRequestUser {
   userId: string;
   name: string;

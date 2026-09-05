@@ -9,6 +9,7 @@ import config from "../../config/index.js";
 
 
 import type {
+	IChangePasswordPayload,
 	ICompleteProfilePayload,
 	IForgotPasswordPayload,
 	IGoogleLoginPayload,
