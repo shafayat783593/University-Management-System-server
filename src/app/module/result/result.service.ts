@@ -1,8 +1,11 @@
 import httpStatus from "http-status";
-import { AppError } from "../../utils/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { AppError } from "../../utils/AppError.js";
 import { EnrollmentStatus, ResultStatus } from "../../../generated/prisma/enums.js";
 import { redisClient } from "../../lib/redis.js";
+import { transporter } from "../../lib/nodmailer.js";
+import config from "../../config/index.js";
+import { pdfGenerator } from "./pdf.js";
 
 
 export interface ISubmitResultRecord {
@@ -308,6 +311,7 @@ const computeSemesterGpa = async (studentId: string, semesterId: string) => {
 const getTranscript = async (userId: string) => {
 	const student = await prisma.studentProfile.findUnique({
 		where: { userId },
+		include: { user: true },
 	});
 	if (!student) {
 		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
@@ -319,16 +323,27 @@ const getTranscript = async (userId: string) => {
 	});
 	const semesterIds = [...new Set(enrollments.map((e) => e.section.semesterId))];
 
-	const semesters = await Promise.all(
+	const semesterRecords = await prisma.semester.findMany({
+		where: { id: { in: semesterIds } },
+	});
+	const semesterNameById = new Map(
+		semesterRecords.map((s) => [s.id, s.name]),
+	);
+
+	const semesterGpas = await Promise.all(
 		semesterIds.map((semesterId) => computeSemesterGpa(student.id, semesterId)),
 	);
+	const semesters = semesterGpas.map((s) => ({
+		...s,
+		semesterName: semesterNameById.get(s.semesterId) ?? "Unknown Semester",
+	}));
 
 	const completed = semesters.filter((s) => s.gpa !== null);
 	const totalCreditHours = completed.reduce(
 		(sum, s) =>
 			sum +
 			s.courses.reduce(
-				(cs:any, c:any) => (c.gradePoint !== null ? cs + c.creditHours : cs),
+				(cs, c) => (c.gradePoint !== null ? cs + c.creditHours : cs),
 				0,
 			),
 		0,
@@ -337,7 +352,7 @@ const getTranscript = async (userId: string) => {
 		(sum, s) =>
 			sum +
 			s.courses.reduce(
-				(cs:any, c:any) => (c.gradePoint !== null ? cs + c.gradePoint * c.creditHours : cs),
+				(cs, c) => (c.gradePoint !== null ? cs + c.gradePoint * c.creditHours : cs),
 				0,
 			),
 		0,
@@ -347,7 +362,145 @@ const getTranscript = async (userId: string) => {
 			? Number((totalQualityPoints / totalCreditHours).toFixed(2))
 			: null;
 
-	return { semesters, cgpa };
+	return { student, semesters, cgpa };
+};
+
+const getSectionResultSheet = async (userId: string, sectionId: string) => {
+	const student = await prisma.studentProfile.findUnique({
+		where: { userId },
+	});
+	if (!student) {
+		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	}
+
+	const enrollment = await prisma.enrollment.findFirst({
+		where: { studentId: student.id, sectionId } ,
+	});
+	if (!enrollment) {
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			"You are not enrolled in this section",
+		);
+	}
+
+	const section = await prisma.section.findUnique({
+		where: { id: sectionId },
+		include: { course: true, semester: true },
+	});
+	if (!section) {
+		throw new AppError(httpStatus.NOT_FOUND, "Section not found");
+	}
+
+	const exams = await prisma.exam.findMany({
+		where: { sectionId },
+		include: { results: { where: { studentId: student.id } } },
+		orderBy: { createdAt: "asc" },
+	});
+
+	return {
+		course: section.course,
+		semester: section.semester,
+		exams: exams.map((exam) => ({
+			id: exam.id,
+			title: exam.title,
+			examType: exam.examType,
+			totalMarks: exam.totalMarks,
+			marksObtained: exam.results[0]?.marksObtained ?? null,
+			status: exam.results[0]?.status ?? "NOT_GRADED",
+		})),
+	};
+};
+
+const buildResultSheetPdfBuffer = async (userId: string, sectionId: string) => {
+	const sheet = await getSectionResultSheet(userId, sectionId);
+	const student = await prisma.studentProfile.findUniqueOrThrow({
+		where: { userId },
+		include: { user: true },
+	});
+
+	const ungraded = sheet.exams.filter((e) => e.marksObtained === null);
+	if (ungraded.length > 0) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			"Some exams in this section don't have a result yet — cannot generate a complete sheet",
+		);
+	}
+
+	const buffer = await pdfGenerator.generateResultSheetPdf({
+		studentName: student.user.name,
+		studentIdCode: student.studentIdCode,
+		courseCode: sheet.course.code,
+		courseTitle: sheet.course.title,
+		semesterName: sheet.semester.name,
+		exams: sheet.exams.map((e) => ({
+			title: e.title,
+			examType: e.examType,
+			totalMarks: e.totalMarks,
+			marksObtained: e.marksObtained as number,
+			status: e.status,
+		})),
+	});
+
+	return { buffer, student };
+};
+
+const downloadResultSheet = async (userId: string, sectionId: string) => {
+	return buildResultSheetPdfBuffer(userId, sectionId);
+};
+
+const emailResultSheet = async (userId: string, sectionId: string) => {
+	const { buffer, student } = await buildResultSheetPdfBuffer(userId, sectionId);
+
+	await transporter.sendMail({
+		from: config.email_sender,
+		to: student.user.email,
+		subject: "Your Result Sheet",
+		html: `<p>Hi ${student.user.name},</p><p>Your result sheet is attached.</p>`,
+		attachments: [
+			{
+				filename: `result-sheet-${student.studentIdCode}.pdf`,
+				content: buffer,
+			},
+		],
+	});
+};
+
+const buildTranscriptPdfBuffer = async (userId: string) => {
+	const { student, semesters, cgpa } = await getTranscript(userId);
+
+	const buffer = await pdfGenerator.generateTranscriptPdf({
+		studentName: student.user.name,
+		studentIdCode: student.studentIdCode,
+		semesters: semesters.map((s) => ({
+			semesterName: s.semesterName,
+			gpa: s.gpa,
+			courses: s.courses,
+		})),
+		cgpa,
+	});
+
+	return { buffer, student };
+};
+
+const downloadTranscript = async (userId: string) => {
+	return buildTranscriptPdfBuffer(userId);
+};
+
+const emailTranscript = async (userId: string) => {
+	const { buffer, student } = await buildTranscriptPdfBuffer(userId);
+
+	await transporter.sendMail({
+		from: config.email_sender,
+		to: student.user.email,
+		subject: "Your Academic Transcript",
+		html: `<p>Hi ${student.user.name},</p><p>Your transcript is attached.</p>`,
+		attachments: [
+			{
+				filename: `transcript-${student.studentIdCode}.pdf`,
+				content: buffer,
+			},
+		],
+	});
 };
 
 export const ResultService = {
@@ -356,4 +509,9 @@ export const ResultService = {
 	overrideResult,
 	computeSemesterGpa,
 	getTranscript,
+	getSectionResultSheet,
+	downloadResultSheet,
+	emailResultSheet,
+	downloadTranscript,
+	emailTranscript,
 };

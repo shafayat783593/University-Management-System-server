@@ -344,9 +344,7 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
 			throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
 		}
 	} else {
-		// Brand-new student via Google. No studentProfile is created here
-		// (department + studentIdCode are unknown from Google) — it is
-		// completed through the normal profile-completion flow afterwards.
+	
 		user = await prisma.user.create({
 			data: {
 				name: googleName,
