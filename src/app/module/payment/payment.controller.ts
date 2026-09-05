@@ -30,12 +30,12 @@ const bkashCallback = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getAllPayments = catchAsync(async (req: Request, res: Response) => {
-	const result = await PaymentService.getAllPayments();
+	const {data,meta} = await PaymentService.getAllPayments(req.query);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
 		message: "Payments retrieved",
-		data: result,
+		data: { data, meta },
 	});
 });
 

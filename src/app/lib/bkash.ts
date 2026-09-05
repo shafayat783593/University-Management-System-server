@@ -43,32 +43,7 @@ const cacheTokens = async (data: IBkashGrantResponse) => {
 	}
 };
 
-const requestNewGrantToken = async (): Promise<string> => {
-	const response = await fetch(
-		`${config.bkash_base_url}/tokenized/checkout/token/grant`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Accept: "application/json",
-				username: config.bkash_username,
-				password: config.bkash_password,
-			},
-			body: JSON.stringify({
-				app_key: config.bkash_app_key,
-				app_secret: config.bkash_app_secret,
-			}),
-		},
-	);
-
-	const data = (await response.json()) as IBkashGrantResponse;
-	if (!response.ok || !data.id_token) {
-		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to get bKash grant token");
-	}
-
-	await cacheTokens(data);
-	return data.id_token;
-};
+// 
 
 const refreshGrantToken = async (refreshToken: string): Promise<string> => {
 	const response = await fetch(
@@ -110,12 +85,41 @@ const getGrantToken = async (): Promise<string> => {
 		try {
 			return await refreshGrantToken(cachedRefreshToken);
 		} catch {
-			// refresh_token itself expired or was rejected — fall through
-			// to a full grant below instead of failing the request.
+		
 		}
 	}
 
-	return requestNewGrantToken();
+
+
+
+	const response = await fetch(
+		`${config.bkash_base_url}/tokenized/checkout/token/grant`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				username: config.bkash_username,
+				password: config.bkash_password,
+			},
+			body: JSON.stringify({
+				app_key: config.bkash_app_key,
+				app_secret: config.bkash_app_secret,
+			}),
+		},
+	);
+
+	const data = (await response.json()) as IBkashGrantResponse;
+	if (!response.ok || !data.id_token) {
+		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to get bKash grant token");
+	}
+
+	await cacheTokens(data);
+	return data.id_token;
+
+
+
+
 };
 
 const createPayment = async (params: {
@@ -152,6 +156,11 @@ const createPayment = async (params: {
 		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to create bKash payment");
 	}
 
+	const createpaymentresponse = {
+		paymentID: data.paymentID,
+		bkashURL: data.bkashURL,
+	};
+	console.log("createpaymentresponse", createpaymentresponse);
 	return data;
 };
 
@@ -178,6 +187,7 @@ const executePayment = async (
 	if (!response.ok || data.transactionStatus !== "Completed") {
 		throw new AppError(httpStatus.BAD_GATEWAY, "bKash payment execution failed");
 	}
+	console.log("executePayment data", data);
 
 	return data;
 };

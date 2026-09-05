@@ -1,19 +1,15 @@
 import httpStatus from "http-status";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
-import { FeeStatus } from "../../../generated/prisma/enums.js";
+import { FeeStatus, PaymentStatus } from "../../../generated/prisma/enums.js";
 import { bkashClient } from "../../lib/bkash.js";
 import config from "../../config/index.js";
-import { redisClient } from "../../lib/redis.js";
+import { PaymentWhereInput } from "../../../generated/prisma/models.js";
+import { IQuary } from "../../interface/index.js";
 
 interface IInitBkashPaymentPayload {
 	feeId: string;
 }
- 
-
-const PAYMENT_FEE_MAP_TTL_SECONDS = 3600;
-const paymentFeeMapKey = (paymentID: string) => `bkash:payment-fee:${paymentID}`;
-
 
 const initBkashPayment = async (
 	userId: string,
@@ -27,10 +23,8 @@ const initBkashPayment = async (
 	}
 
 	const fee = await prisma.fee.findUnique({
-		 where: {
-			 id: payload.feeId 
-			}
-		 });
+		where: { id: payload.feeId },
+	});
 	if (!fee) {
 		throw new AppError(httpStatus.NOT_FOUND, "Fee record not found");
 	}
@@ -44,12 +38,25 @@ const initBkashPayment = async (
 	const bkashResponse = await bkashClient.createPayment({
 		amount: fee.amount,
 		invoiceNumber: fee.id,
-		callbackURL: config.bkash_callback_url,
-	});
-	const paymentFreeMapKey = `bkash:payment-fee:${bkashResponse.paymentID}`;
+		callbackURL:`${config.bkash_callback_url}/payments/bkash/callback`,
+		
 
-	await redisClient.set(paymentFreeMapKey, fee.id, {
-		expiration: { type: "EX", value: PAYMENT_FEE_MAP_TTL_SECONDS },
+	});
+
+	await prisma.payment.upsert({
+		where: { feeId: fee.id },
+		create: {
+			feeId: fee.id,
+			paymentId: bkashResponse.paymentID,
+			amount: fee.amount,
+			status: PaymentStatus.PENDING,
+		},
+		update: {
+			paymentId: bkashResponse.paymentID,
+			status: PaymentStatus.PENDING,
+			trxId: null,
+			paidAt: null,
+		},
 	});
 
 	return {
@@ -59,63 +66,150 @@ const initBkashPayment = async (
 };
 
 const bkashCallback = async (paymentID: string, status: string) => {
+
+	console.log("bkashCallback called with paymentID:", paymentID, "status:", status);
 	if (!paymentID) {
 		throw new AppError(httpStatus.BAD_REQUEST, "Missing paymentID");
 	}
-
-	if (status !== "success") {
-		return { success: false, message: "Payment was cancelled or failed" };
+	if (!status) {
+		throw new AppError(httpStatus.BAD_REQUEST, "Missing status");
 	}
 
-	const paymentFreeMapKey = `bkash:payment-fee:${paymentID}`;
-
-	const feeId = await redisClient.get(paymentFreeMapKey).catch(() => null);
-	if (!feeId) {
+	const paymentRecord = await prisma.payment.findUnique({
+		where: { paymentId: paymentID },
+	});
+	if (!paymentRecord) {
 		throw new AppError(
 			httpStatus.BAD_REQUEST,
-			"No matching fee found for this payment (session may have expired)",
+			"No matching payment attempt found for this paymentID",
 		);
 	}
 
-	const fee = await prisma.fee.findUnique({ where: { id: feeId } });
-	if (!fee) {
-		throw new AppError(httpStatus.NOT_FOUND, "Fee record not found");
+	if (status !== "success") {
+		await prisma.payment.update({
+			where: { id: paymentRecord.id },
+			data: {
+				status:
+					status === "cancel" ? PaymentStatus.CANCELLED : PaymentStatus.FAILED,
+			},
+		});
+		return { success: false, message: `Payment ${status}` };
 	}
-	if (fee.status === FeeStatus.PAID) {
+
+	if (paymentRecord.status === PaymentStatus.PAID) {
 		return { success: true, message: "Already recorded as paid" };
 	}
 
+	// Execute OUTSIDE the DB transaction — it's a network call to bKash,
+	// keeping it out of the transaction keeps the transaction's lock
+	// window short (matches the Healthcare pattern's comment on this).
 	const executeResult = await bkashClient.executePayment(paymentID);
 
-	const payment = await prisma.$transaction(async (tx) => {
+	const updatedPayment = await prisma.$transaction(async (tx) => {
 		await tx.fee.update({
-			where: { id: fee.id },
+			where: { id: paymentRecord.feeId },
 			data: { status: FeeStatus.PAID },
 		});
-		return tx.payment.create({
+
+		return tx.payment.update({
+			where: { id: paymentRecord.id },
 			data: {
-				feeId: fee.id,
+				status: PaymentStatus.PAID,
 				trxId: executeResult.trxID,
-				paymentId: paymentID,
-				amount: Number(executeResult.amount),
+				paidAt: new Date(),
+				gatewayResponse: executeResult as object,
 			},
 		});
 	});
 
-	await redisClient.del([paymentFeeMapKey(paymentID)]);
-
-	return { success: true, message: "Payment successful", payment };
+	return { success: true, message: "Payment successful", payment: updatedPayment };
 };
 
-const getAllPayments = async () => {
-	return prisma.payment.findMany({
+const getAllPayments = async (query: IQuary) => {
+	const limit = query.limit ? Number(query.limit) : 10;
+	const page = query.page ? Number(query.page) : 1;
+	const skip = (page - 1) * limit;
+
+	const sortBy = query.sortBy || "createdAt";
+	const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
+
+	const andConditions: PaymentWhereInput[] = [];
+
+	if (query.status) {
+		andConditions.push({ status: query.status as PaymentStatus });
+	}
+
+	if (query.searchTerm) {
+		andConditions.push({
+			OR: [
+				{ trxId: { contains: query.searchTerm, mode: "insensitive" } },
+				{ paymentId: { contains: query.searchTerm, mode: "insensitive" } },
+				{
+					fee: {
+						student: {
+							studentIdCode: { contains: query.searchTerm, mode: "insensitive" },
+						},
+					},
+				},
+				{
+					fee: {
+						student: {
+							user: { name: { contains: query.searchTerm, mode: "insensitive" } },
+						},
+					},
+				},
+				{
+					fee: {
+						student: {
+							user: { email: { contains: query.searchTerm, mode: "insensitive" } },
+						},
+					},
+				},
+				{
+					fee: {
+						semester: { name: { contains: query.searchTerm, mode: "insensitive" } },
+					},
+				},
+			],
+		});
+	}
+
+	if (query.studentId) {
+		andConditions.push({ fee: { studentId: query.studentId } });
+	}
+
+	if (query.semesterId) {
+		andConditions.push({ fee: { semesterId: query.semesterId } });
+	}
+
+	const payments = await prisma.payment.findMany({
+		where: { AND: andConditions.length > 0 ? andConditions : undefined },
+		take: limit,
+		skip,
+		orderBy: { [sortBy]: sortOrder },
 		include: {
 			fee: {
-				include: { student: { include: { user: true } }, semester: true },
+				include: {
+					student: { include: { user: { omit: { password: true } } } },
+					semester: true,
+				},
 			},
 		},
-		orderBy: { paidAt: "desc" },
 	});
+
+	const totalPaymentCount = await prisma.payment.count({
+		where: { AND: andConditions.length > 0 ? andConditions : undefined },
+	});
+
+	return {
+		data: payments,
+		meta: {
+			page,
+			limit,
+			total: totalPaymentCount,
+			totalPages: Math.ceil(totalPaymentCount / limit),
+		},
+	};
 };
 
 const getMyFees = async (userId: string) => {

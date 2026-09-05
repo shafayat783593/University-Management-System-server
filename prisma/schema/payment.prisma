@@ -18,13 +18,17 @@ model Fee {
 }
 
 model Payment {
-  id        String   @id @default(uuid())
-  feeId     String   @unique
-  fee       Fee      @relation(fields: [feeId], references: [id])
-  trxId     String   @unique // bKash trxID
-  paymentId String   // bKash paymentID from the create-payment step
-  amount    Float
-  paidAt    DateTime @default(now())
+  id              String        @id @default(uuid())
+  feeId           String        @unique
+  fee             Fee           @relation(fields: [feeId], references: [id])
+  paymentId       String        @unique // bKash paymentID — set at init time, the durable lookup key for the callback
+  trxId           String?       @unique // bKash trxID — only set after a successful execute
+  amount          Float
+  status          PaymentStatus @default(PENDING)
+  gatewayResponse Json?
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@map("payments")
 }
