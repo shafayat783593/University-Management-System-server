@@ -175,6 +175,31 @@ const changePassword = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+
+const updateProfileImage = catchAsync(async (req: Request, res: Response) => {
+	const user = req.user!;
+	const file = req.file as Express.Multer.File | undefined;
+	const result = await AuthService.updateProfileImage(user.userId, file);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Profile image updated",
+		data: result,
+	});
+});
+ 
+const updateStudentProfile = catchAsync(async (req: Request, res: Response) => {
+	const user = req.user!;
+	const result = await AuthService.updateStudentProfile(user.userId, req.body);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Profile updated",
+		data: result,
+	});
+});
+ 
+
 export const AuthController = {
 	register,
 	verifyEmail,
@@ -186,4 +211,6 @@ export const AuthController = {
 	forgotPassword,
 	resetPassword,
 	changePassword,
+	updateProfileImage,
+	updateStudentProfile
 };

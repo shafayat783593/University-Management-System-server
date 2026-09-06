@@ -17,6 +17,7 @@ import type {
 	IRegisterStudentPayload,
 	IRequestUser,
 	IResetPasswordPayload,
+	IUpdateStudentProfilePayload,
 	IVerifyEmailPayload,
 } from "./auth.interface.js";
 import { prisma } from "../../lib/prisma.js";
@@ -26,6 +27,7 @@ import { transporter } from "../../lib/nodmailer.js";
 import { AuthProvider, Role, UserStatus } from "../../../generated/prisma/enums.js";
 import type { UserModel } from "../../../generated/prisma/models/User.js";
 import { googleClient } from "../../lib/googleAuth.js";
+import { cloudinary } from "../../lib/cloudinary.js";
 
 const OTP_TTL_SECONDS = 5 * 60;
 
@@ -505,6 +507,78 @@ const changePassword = async (
 	});
 };
 
+
+const updateProfileImage = async (
+	userId: string,
+	file: Express.Multer.File | undefined,
+) => {
+	if (!file) {
+		throw new AppError(httpStatus.BAD_REQUEST, "Image file is required");
+	}
+ 
+	const user = await prisma.user.findUnique({ where: { id: userId } });
+	if (!user) {
+		throw new AppError(httpStatus.NOT_FOUND, "User not found");
+	}
+ 
+	const uploadResult = await new Promise<{ secure_url: string; public_id: string }>(
+		(resolve, reject) => {
+			cloudinary.uploader
+				.upload_stream({ resource_type: "image" }, (error, result) => {
+					if (error) return reject(error);
+					if (!result) {
+						return reject(
+							new AppError(httpStatus.INTERNAL_SERVER_ERROR, "No result from Cloudinary"),
+						);
+					}
+					resolve(result);
+				})
+				.end(file.buffer);
+		},
+	);
+ 
+	
+	if (user.imagePublicId) {
+		await cloudinary.uploader.destroy(user.imagePublicId).catch(() => null);
+	}
+ 
+	return prisma.user.update({
+		where: { id: userId },
+		data: {
+			imageUrl: uploadResult.secure_url,
+			imagePublicId: uploadResult.public_id,
+		},
+		omit: { password: true },
+	});
+};
+ 
+
+const updateStudentProfile = async (
+	userId: string,
+	payload: IUpdateStudentProfilePayload,
+) => {
+	const student = await prisma.studentProfile.findUnique({ where: { userId } });
+	if (!student) {
+		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	}
+ 
+	return prisma.studentProfile.update({
+		where: { userId },
+		data: {
+			phone: payload.phone,
+			address: payload.address,
+			dateOfBirth: payload.dateOfBirth ? new Date(payload.dateOfBirth) : undefined,
+			guardianName: payload.guardianName,
+			guardianPhone: payload.guardianPhone,
+			bloodGroup: payload.bloodGroup,
+		},
+	});
+};
+ 
+
+
+
+
 export const AuthService = {
 	registerStudent,
 	verifyStudentEmail,
@@ -516,4 +590,6 @@ export const AuthService = {
 	forgotPassword,
 	resetPassword,
 	changePassword,
+		updateProfileImage,
+	updateStudentProfile,
 };

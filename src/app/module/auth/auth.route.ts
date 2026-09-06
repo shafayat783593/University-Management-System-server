@@ -4,6 +4,7 @@ import { Router } from "express";
 import { AuthController } from "./auth.controller.js";
 import { Role } from "../../../generated/prisma/enums.js";
 import { auth } from "../../middleware/auth.js";
+import { upload } from "../../lib/multer.js";
 
 
 const router = Router();
@@ -27,6 +28,18 @@ router.patch(
 	"/change-password",
 	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),
 	AuthController.changePassword,
+);
+
+router.patch(
+	"/profile-image",
+	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),
+	upload.single("image"),
+	AuthController.updateProfileImage,
+);
+router.patch(
+	"/student-profile",
+	auth(Role.STUDENT),
+	AuthController.updateStudentProfile,
 );
 
 export const AuthRoutes = router;

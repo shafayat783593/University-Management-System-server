@@ -39,10 +39,18 @@ export interface IResetPasswordPayload {
   newPassword: string;
 }
 
-
 export interface IChangePasswordPayload {
   oldPassword: string;
   newPassword: string;
+}
+
+export interface IUpdateStudentProfilePayload {
+  phone?: string;
+  address?: string;
+  dateOfBirth?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  bloodGroup?: string;
 }
 
 export interface IRequestUser {
