@@ -51,9 +51,23 @@ const getMyFees = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+const cancelPayment = catchAsync(async (req: Request, res: Response) => {
+
+	const userId = req.user?.userId;
+	const feeId = req.params.feeId;
+	const result = await PaymentService.cancelPayment(userId as string, feeId as string);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Payment cancelled and refund initiated",
+		data: result,
+	});
+});
+
 export const PaymentController = {
 	initBkashPayment,
 	bkashCallback,
 	getAllPayments,
 	getMyFees,
+	cancelPayment,
 };

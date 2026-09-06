@@ -27,6 +27,10 @@ model Payment {
   status          PaymentStatus @default(PENDING)
   gatewayResponse Json?
   paidAt          DateTime?
+  refundTrxId     String?
+  refundAt        DateTime?
+  refundAmount    Float?
+  reason          String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

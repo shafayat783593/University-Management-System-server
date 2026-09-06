@@ -1,9 +1,13 @@
 import httpStatus from "http-status";
+import { format, isBefore } from "date-fns";
+import ejs from "ejs";
+import path from "path";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { FeeStatus, PaymentStatus } from "../../../generated/prisma/enums.js";
 import { bkashClient } from "../../lib/bkash.js";
 import config from "../../config/index.js";
+import { transporter } from "../../lib/nodemailer.js";
 import { PaymentWhereInput } from "../../../generated/prisma/models.js";
 import { IQuary } from "../../interface/index.js";
 
@@ -38,11 +42,17 @@ const initBkashPayment = async (
 	const bkashResponse = await bkashClient.createPayment({
 		amount: fee.amount,
 		invoiceNumber: fee.id,
-		callbackURL:`${config.bkash_callback_url}/payments/bkash/callback`,
-		
-
+		callbackURL: config.bkash_callback_url,
 	});
 
+	// The paymentID <-> feeId link now lives in the database itself
+	// (Payment.paymentId, unique), not in Redis — this is the Healthcare
+	// project's pattern (appoinment.service.ts stores bkashPaymentId
+	// directly on the Payment row at booking time). No TTL, no risk of
+	// losing the mapping if Redis restarts between init and callback.
+	// upsert handles retries: if the student cancels and tries again,
+	// this overwrites the previous pending attempt instead of violating
+	// the one-Payment-per-Fee unique constraint.
 	await prisma.payment.upsert({
 		where: { feeId: fee.id },
 		create: {
@@ -66,8 +76,6 @@ const initBkashPayment = async (
 };
 
 const bkashCallback = async (paymentID: string, status: string) => {
-
-	console.log("bkashCallback called with paymentID:", paymentID, "status:", status);
 	if (!paymentID) {
 		throw new AppError(httpStatus.BAD_REQUEST, "Missing paymentID");
 	}
@@ -121,6 +129,37 @@ const bkashCallback = async (paymentID: string, status: string) => {
 			},
 		});
 	});
+
+	// Confirmation email — outside the transaction. If sending fails,
+	// that shouldn't roll back a payment that's already been captured;
+	// the student can still see it as PAID via /payments/my-fees.
+	const feeWithStudent = await prisma.fee.findUnique({
+		where: { id: paymentRecord.feeId },
+		include: { student: { include: { user: true } }, semester: true },
+	});
+
+	if (feeWithStudent) {
+		const templatePath = path.join(
+			process.cwd(),
+			"src/app/templates/payment-confirmation.ejs",
+		);
+		const html = await ejs.renderFile(templatePath, {
+			name: feeWithStudent.student.user.name,
+			semesterName: feeWithStudent.semester.name,
+			amount: updatedPayment.amount,
+			trxId: updatedPayment.trxId,
+			paidAt: format(updatedPayment.paidAt ?? new Date(), "dd MMM yyyy, hh:mm a"),
+		});
+
+		await transporter
+			.sendMail({
+				from: config.email_sender,
+				to: feeWithStudent.student.user.email,
+				subject: "Payment Confirmation — University Management System",
+				html,
+			})
+			.catch(() => null); // don't let an email failure surface as a payment failure
+	}
 
 	return { success: true, message: "Payment successful", payment: updatedPayment };
 };
@@ -227,9 +266,78 @@ const getMyFees = async (userId: string) => {
 	});
 };
 
+
+const cancelPayment = async (userId: string, feeId: string) => {
+	const student = await prisma.studentProfile.findUnique({
+		where: { userId },
+	});
+	if (!student) {
+		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	}
+
+	const fee = await prisma.fee.findUnique({
+		where: { id: feeId },
+		include: { semester: true, payment: true },
+	});
+	if (!fee) {
+		throw new AppError(httpStatus.NOT_FOUND, "Fee record not found");
+	}
+	if (fee.studentId !== student.id) {
+		throw new AppError(httpStatus.FORBIDDEN, "This fee does not belong to you");
+	}
+	if (!fee.payment || fee.payment.status !== PaymentStatus.PAID) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			"This fee has no completed payment to cancel",
+		);
+	}
+
+	const isEligibleForRefund = fee.semester.enrollmentEnd
+		? isBefore(new Date(), fee.semester.enrollmentEnd)
+		: false;
+
+	if (!isEligibleForRefund) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			"Refund window has closed — this semester's add/drop deadline has passed",
+		);
+	}
+
+	const refundResult = await bkashClient.refundPayment({
+		paymentID: fee.payment.paymentId,
+		trxID: fee.payment.trxId as string,
+		amount: fee.payment.amount,
+		sku: "Semester Fee Cancellation",
+		reason: "Student requested fee cancellation",
+	});
+
+	const [updatedPayment] = await prisma.$transaction([
+		prisma.payment.update({
+			where: { id: fee.payment.id },
+			data: {
+				status: PaymentStatus.REFUNDED,
+				refundTrxId: refundResult.refundTrxID,
+				refundAt: refundResult.completedTime
+					? new Date(refundResult.completedTime)
+					: new Date(),
+				refundAmount: Number(refundResult.amount),
+				reason: "Student requested fee cancellation",
+				gatewayResponse: refundResult as unknown as object,
+			},
+		}),
+		prisma.fee.update({
+			where: { id: fee.id },
+			data: { status: FeeStatus.PENDING },
+		}),
+	]);
+
+	return { payment: updatedPayment };
+};
+
 export const PaymentService = {
 	initBkashPayment,
 	bkashCallback,
 	getAllPayments,
 	getMyFees,
+	cancelPayment,
 };

@@ -28,6 +28,14 @@ interface IBkashExecutePaymentResponse {
 	amount: string;
 }
 
+
+interface IBkashRefundResponse {
+	refundTrxID: string;
+	completedTime?: string;
+	amount: string;
+}
+ 
+
 const cacheTokens = async (data: IBkashGrantResponse) => {
 	await redisClient.set(ID_TOKEN_KEY, data.id_token, {
 			expiration: { type: "EX", value: ID_TOKEN_TTL_SECONDS },
@@ -192,8 +200,50 @@ const executePayment = async (
 	return data;
 };
 
+
+
+const refundPayment = async (params: {
+	paymentID: string;
+	trxID: string;
+	amount: number;
+	sku: string;
+	reason: string;
+}): Promise<IBkashRefundResponse> => {
+	const token = await getGrantToken();
+ 
+	const response = await fetch(
+		`${config.bkash_base_url}/tokenized/checkout/payment/refund`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				Authorization: token,
+				"X-App-Key": config.bkash_app_key,
+			},
+			body: JSON.stringify({
+				paymentID: params.paymentID,
+				trxID: params.trxID,
+				amount: params.amount.toString(),
+				sku: params.sku,
+				reason: params.reason,
+			}),
+		},
+	);
+ 
+	const data = (await response.json()) as IBkashRefundResponse;
+	if (!response.ok || !data.refundTrxID) {
+		throw new AppError(httpStatus.BAD_GATEWAY, "bKash refund failed");
+	}
+ 
+	return data;
+};
+
+
+
 export const bkashClient = {
 	getGrantToken,
 	createPayment,
 	executePayment,
+	refundPayment
 };
