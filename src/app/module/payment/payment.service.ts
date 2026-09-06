@@ -7,9 +7,10 @@ import { AppError } from "../../utils/AppError.js";
 import { FeeStatus, PaymentStatus } from "../../../generated/prisma/enums.js";
 import { bkashClient } from "../../lib/bkash.js";
 import config from "../../config/index.js";
-import { transporter } from "../../lib/nodemailer.js";
 import { PaymentWhereInput } from "../../../generated/prisma/models.js";
 import { IQuary } from "../../interface/index.js";
+import { transporter } from "../../lib/nodmailer.js";
+
 
 interface IInitBkashPaymentPayload {
 	feeId: string;
