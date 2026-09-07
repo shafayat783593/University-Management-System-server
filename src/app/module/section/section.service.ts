@@ -76,7 +76,36 @@ const getAllSections = async (query:IQuary) => {
 	if (query.instructorId) {
 		andConditions.push({
 			instructorId: query.instructorId,
+
 		});
+	}
+	if(	query.title){
+		andConditions.push({
+			course:{
+				title:{
+					contains: query.title,
+					mode:"insensitive"
+				}
+			}
+		})
+	}
+	if(query.status){
+		andConditions.push({
+			semester:{
+				status: query.status,
+				
+			}
+		})
+	}
+	if(query.name){
+		andConditions.push({
+		semester:{
+			name:{
+				contains: query.name,
+				mode:"insensitive"
+			}
+		}
+		})
 	}
 
 
@@ -148,9 +177,7 @@ const getAllSections = async (query:IQuary) => {
 		},
 	});
 
-	// =========================
-	// Total count
-	// =========================
+	
 	const totalSectionCount = await prisma.section.count({
 		where: {
 			AND: andConditions.length > 0 ? andConditions : undefined,

@@ -16,10 +16,9 @@ const createSection = catchAsync(async (req:Request, res:Response) => {
 });
 
 const getAllSections = catchAsync(async (req:Request, res:Response) => {
-	const result = await SectionService.getAllSections({
-		semesterId: req.query.semesterId as string | undefined,
-		courseId: req.query.courseId as string | undefined,
-	});
+	const quary = req.query;
+
+	const result = await SectionService.getAllSections(quary);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,

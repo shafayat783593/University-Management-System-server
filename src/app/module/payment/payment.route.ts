@@ -9,12 +9,10 @@ const router = Router();
 router.post(
 	"/bkash/init",
 	auth(Role.STUDENT),
-	// validateRequest(PaymentValidation.initBkashPaymentZodSchema),
 	PaymentController.initBkashPayment,
 );
 router.patch("/:feeId/cancel", auth(Role.STUDENT), PaymentController.cancelPayment);
 
-// bKash redirects the student's browser here directly — no auth() possible
 router.get("/bkash/callback", PaymentController.bkashCallback);
 router.get("/my-fees", auth(Role.STUDENT), PaymentController.getMyFees);
 router.get("/", auth(Role.ADMIN), PaymentController.getAllPayments);

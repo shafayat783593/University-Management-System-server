@@ -1,12 +1,14 @@
 import httpStatus from "http-status";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
-import { EnrollmentStatus, ResultStatus } from "../../../generated/prisma/enums.js";
+import {
+	EnrollmentStatus,
+	ResultStatus,
+} from "../../../generated/prisma/enums.js";
 import { redisClient } from "../../lib/redis.js";
 import { transporter } from "../../lib/nodmailer.js";
 import config from "../../config/index.js";
 import { pdfGenerator } from "./pdf.js";
-
 
 export interface ISubmitResultRecord {
 	studentId: string;
@@ -18,7 +20,6 @@ export interface IOverrideResultPayload {
 	reason: string;
 }
 
-
 const GPA_CACHE_TTL_SECONDS = 60 * 60 * 24;
 const gpaCacheKey = (studentId: string, semesterId: string) =>
 	`gpa:${studentId}:${semesterId}`;
@@ -29,7 +30,9 @@ const submitResults = async (
 	records: ISubmitResultRecord[],
 ) => {
 	const instructor = await prisma.instructorProfile.findUnique({
-		where: { userId },
+		where: {
+			userId,
+		},
 	});
 	if (!instructor) {
 		throw new AppError(httpStatus.NOT_FOUND, "Instructor profile not found");
@@ -73,9 +76,6 @@ const submitResults = async (
 		);
 	}
 
-	// Only touches DRAFT results. A published result must go through
-	// overrideResult instead, which is audit-logged — this endpoint
-	// deliberately can't silently rewrite something already locked.
 	const alreadyPublished = await prisma.result.findMany({
 		where: {
 			examId,
@@ -133,7 +133,6 @@ const publishExamResults = async (examId: string) => {
 		});
 		return tx.result.findMany({ where: { examId } });
 	});
-
 
 	await Promise.all(
 		updated.map((r) =>
@@ -202,9 +201,6 @@ const overrideResult = async (
 	return updated;
 };
 
-// --- GPA calculation ---
-// Standard Bangladesh public-university 4.00-scale letter grade bands.
-// Adjust to your institution's actual scale if it differs.
 const PERCENTAGE_TO_GRADE_POINT: { min: number; point: number }[] = [
 	{ min: 80, point: 4.0 },
 	{ min: 75, point: 3.75 },
@@ -223,11 +219,6 @@ const percentageToGradePoint = (percentage: number) => {
 	return band ? band.point : 0.0;
 };
 
-/**
- * Returns null if any exam in the section still has an unpublished (or
- * missing) result for this student — an incomplete section can't
- * contribute to GPA yet.
- */
 const getSectionGradePoint = async (studentId: string, sectionId: string) => {
 	const exams = await prisma.exam.findMany({
 		where: { sectionId },
@@ -319,14 +310,14 @@ const getTranscript = async (userId: string) => {
 		where: { studentId: student.id },
 		select: { section: { select: { semesterId: true } } },
 	});
-	const semesterIds = [...new Set(enrollments.map((e) => e.section.semesterId))];
+	const semesterIds = [
+		...new Set(enrollments.map((e) => e.section.semesterId)),
+	];
 
 	const semesterRecords = await prisma.semester.findMany({
 		where: { id: { in: semesterIds } },
 	});
-	const semesterNameById = new Map(
-		semesterRecords.map((s) => [s.id, s.name]),
-	);
+	const semesterNameById = new Map(semesterRecords.map((s) => [s.id, s.name]));
 
 	const semesterGpas = await Promise.all(
 		semesterIds.map((semesterId) => computeSemesterGpa(student.id, semesterId)),
@@ -350,7 +341,8 @@ const getTranscript = async (userId: string) => {
 		(sum, s) =>
 			sum +
 			s.courses.reduce(
-				(cs, c) => (c.gradePoint !== null ? cs + c.gradePoint * c.creditHours : cs),
+				(cs, c) =>
+					c.gradePoint !== null ? cs + c.gradePoint * c.creditHours : cs,
 				0,
 			),
 		0,
@@ -372,7 +364,7 @@ const getSectionResultSheet = async (userId: string, sectionId: string) => {
 	}
 
 	const enrollment = await prisma.enrollment.findFirst({
-		where: { studentId: student.id, sectionId } ,
+		where: { studentId: student.id, sectionId },
 	});
 	if (!enrollment) {
 		throw new AppError(
@@ -447,7 +439,10 @@ const downloadResultSheet = async (userId: string, sectionId: string) => {
 };
 
 const emailResultSheet = async (userId: string, sectionId: string) => {
-	const { buffer, student } = await buildResultSheetPdfBuffer(userId, sectionId);
+	const { buffer, student } = await buildResultSheetPdfBuffer(
+		userId,
+		sectionId,
+	);
 
 	await transporter.sendMail({
 		from: config.email_sender,

@@ -5,10 +5,9 @@ export interface ICreateCoursePayload {
 	departmentId: string;
 	prerequisiteCourseIds?: string[];
 }
- 
+
 export interface IUpdateCoursePayload {
 	title?: string;
 	creditHours?: number;
 	prerequisiteCourseIds?: string[];
 }
- 

@@ -10,10 +10,7 @@ import { sendResponse } from "../../utils/sendResponse.js";
 import { TranscriptService } from "./transcript.service.js";
 
 
-// A STUDENT can only ever act on their own record. ADMIN / INSTRUCTOR may
-// target any student by passing studentId explicitly. This is the one
-// place that decides "whose transcript is this", so every handler below
-// calls it. It returns the StudentProfile id.
+
 const resolveTargetStudentId = async (
 	requester: { userId: string; role: string },
 	requestedStudentId?: string
@@ -33,8 +30,6 @@ const resolveTargetStudentId = async (
 	return requestedStudentId;
 };
 
-// GET /api/v1/transcript/download?studentId=&semesterId=
-// Streams a PDF straight to the response so the browser/Postman treats it as a file download.
 const downloadTranscript = catchAsync(async (req: Request, res: Response) => {
 	const requester = req.user;
 	if (!requester) throw new AppError(httpStatus.UNAUTHORIZED, "Not authenticated.");
@@ -59,8 +54,7 @@ const downloadTranscript = catchAsync(async (req: Request, res: Response) => {
 	res.send(pdfBuffer);
 });
 
-// POST /api/v1/transcript/email  body: { studentId?, semesterId? }
-// Generates the same PDF and emails it to the student as an attachment.
+
 const emailTranscript = catchAsync(async (req: Request, res: Response) => {
 	const { studentId: bodyStudentId, semesterId } = req.body as {
 		studentId?: string;

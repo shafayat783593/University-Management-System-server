@@ -6,7 +6,6 @@ import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 
 const createExam = catchAsync(async (req:Request, res:Response) => {
-	// @ts-expect-error req.user is attached by the auth() middleware
 	const result = await ExamService.createExam(req.user.userId, req.body);
 	sendResponse(res, {
 		success: true,

@@ -1,14 +1,16 @@
 import httpStatus from "http-status";
-import { ICreateCoursePayload, IUpdateCoursePayload } from "./course.interface.js";
+import {
+	ICreateCoursePayload,
+	IUpdateCoursePayload,
+} from "./course.interface.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
-
 
 const createCourse = async (payload: ICreateCoursePayload) => {
 	const existing = await prisma.course.findUnique({
 		where: {
-			 code:payload.code
-			 },
+			code: payload.code,
+		},
 	});
 	if (existing) {
 		throw new AppError(httpStatus.CONFLICT, "Course code already exists");
@@ -16,8 +18,8 @@ const createCourse = async (payload: ICreateCoursePayload) => {
 
 	const department = await prisma.department.findUnique({
 		where: {
-			 id: payload.departmentId
-			 },
+			id: payload.departmentId,
+		},
 	});
 	if (!department) {
 		throw new AppError(httpStatus.NOT_FOUND, "Department not found");
@@ -25,11 +27,11 @@ const createCourse = async (payload: ICreateCoursePayload) => {
 
 	if (payload.prerequisiteCourseIds?.length) {
 		const foundCount = await prisma.course.count({
-			where: { 
+			where: {
 				id: {
-					 in: payload.prerequisiteCourseIds 
-					} 
+					in: payload.prerequisiteCourseIds,
 				},
+			},
 		});
 		if (foundCount !== payload.prerequisiteCourseIds.length) {
 			throw new AppError(

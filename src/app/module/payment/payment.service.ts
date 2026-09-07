@@ -21,7 +21,9 @@ const initBkashPayment = async (
 	payload: IInitBkashPaymentPayload,
 ) => {
 	const student = await prisma.studentProfile.findUnique({
-		where: { userId },
+		where: { 
+			userId
+		 },
 	});
 	if (!student) {
 		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");

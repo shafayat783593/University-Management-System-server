@@ -9,9 +9,7 @@ import type {
 	TranscriptData,
 } from "./transcript.interface.js";
 
-// Standard Bangladesh public-university 4.00-scale letter grade bands.
-// Must stay in sync with the GPA bands used by the result module so the
-// transcript PDF and the transcript JSON never disagree.
+
 const PERCENTAGE_TO_GRADE: { min: number; grade: { letter: string; point: number } }[] = [
 	{ min: 80, grade: { letter: "A+", point: 4.0 } },
 	{ min: 75, grade: { letter: "A", point: 3.75 } },
@@ -30,14 +28,7 @@ const gradeForPercentage = (percentage: number) => {
 	return band ? band.grade : { letter: "F", point: 0.0 };
 };
 
-/**
- * Builds the transcript / mark-sheet data for a student.
- *
- * A course only counts once EVERY exam of its section has a PUBLISHED
- * result for this student (same rule as the result module's GPA), so an
- * in-progress semester never inflates the cumulative figures.
- * Pass `semesterId` to restrict the output to a single semester.
- */
+
 const buildTranscriptData = async (
 	studentId: string,
 	semesterId?: string
@@ -155,11 +146,6 @@ const buildTranscriptData = async (
 	};
 };
 
-/**
- * Renders TranscriptData into a PDF and resolves with the finished Buffer.
- * Kept as an in-memory buffer (no temp file) so it can go straight into
- * an HTTP download response or a mail attachment without touching disk.
- */
 const generateTranscriptPdf = (
 	data: TranscriptData,
 	title = "Official Transcript"

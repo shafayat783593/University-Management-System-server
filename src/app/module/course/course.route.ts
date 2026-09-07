@@ -5,7 +5,6 @@ import { validateRequest } from "../../middleware/validateRequest.js";
 import { CourseValidation } from "./course.validation.js";
 import { CourseController } from "./course.controller.js";
 
-
 const router = Router();
 
 router.get(

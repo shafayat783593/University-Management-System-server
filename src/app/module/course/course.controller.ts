@@ -4,8 +4,7 @@ import { sendResponse } from "../../utils/sendResponse.js";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { CourseService } from "./course.service.js";
 
-
-const createCourse = catchAsync(async (req:Request, res:Response) => {
+const createCourse = catchAsync(async (req: Request, res: Response) => {
 	const result = await CourseService.createCourse(req.body);
 	sendResponse(res, {
 		success: true,
@@ -15,7 +14,7 @@ const createCourse = catchAsync(async (req:Request, res:Response) => {
 	});
 });
 
-const getAllCourses = catchAsync(async (req:Request, res:Response) => {
+const getAllCourses = catchAsync(async (req: Request, res: Response) => {
 	const departmentId = req.query.departmentId as string | undefined;
 	const result = await CourseService.getAllCourses(departmentId);
 	sendResponse(res, {
@@ -27,7 +26,7 @@ const getAllCourses = catchAsync(async (req:Request, res:Response) => {
 });
 
 const getCourseById = catchAsync(async (req: Request, res: Response) => {
-        const id = req.params.id
+	const id = req.params.id;
 
 	const result = await CourseService.getCourseById(id as string);
 	sendResponse(res, {
@@ -39,7 +38,7 @@ const getCourseById = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateCourse = catchAsync(async (req: Request, res: Response) => {
-    const id = req.params.id
+	const id = req.params.id;
 	const result = await CourseService.updateCourse(id as string, req.body);
 	sendResponse(res, {
 		success: true,
@@ -50,7 +49,7 @@ const updateCourse = catchAsync(async (req: Request, res: Response) => {
 });
 
 const deleteCourse = catchAsync(async (req: Request, res: Response) => {
-        const id = req.params.id
+	const id = req.params.id;
 
 	await CourseService.deleteCourse(id as string);
 	sendResponse(res, {
