@@ -6,7 +6,7 @@ import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 
 const createExam = catchAsync(async (req:Request, res:Response) => {
-	const result = await ExamService.createExam(req.user.userId, req.body);
+	const result = await ExamService.createExam(req.user?.userId as string, req.body);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.CREATED,
