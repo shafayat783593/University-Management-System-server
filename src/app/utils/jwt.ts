@@ -20,10 +20,11 @@ const verifyToken = (token: string, secret: string) => {
 			data: verifiedToken,
 		};
 	} catch (error: any) {
-		console.log("Token verification failed:", error);
+		console.log("Token verification failed:", error.name, error.message);
 		return {
 			success: false,
 			error: error.message,
+			name: error.name as "TokenExpiredError" | "JsonWebTokenError" | string,
 		};
 	}
 };

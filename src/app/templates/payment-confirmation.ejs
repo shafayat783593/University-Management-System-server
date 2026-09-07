@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Payment confirmed</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
+		<tr>
+			<td align="center">
+				<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(15, 23, 42, 0.08);">
+
+					<!-- Header -->
+					<tr>
+						<td style="background:linear-gradient(135deg, #10B981 0%, #059669 60%, #047857 100%); padding:36px 40px;">
+							<span style="display:inline-block; background-color:rgba(255,255,255,0.2); color:#ffffff; font-size:12px; font-weight:600; letter-spacing:1px; padding:6px 14px; border-radius:999px; text-transform:uppercase;">Payment Confirmed</span>
+							<h1 style="margin:18px 0 0; color:#ffffff; font-size:24px; font-weight:700;">Thank you, <%= name %> ✅</h1>
+						</td>
+					</tr>
+
+					<!-- Body -->
+					<tr>
+						<td style="padding:40px;">
+							<p style="margin:0 0 24px; color:#475569; font-size:15px; line-height:1.6;">
+								We've received your semester fee payment. Here's your receipt for your records.
+							</p>
+
+							<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:12px;">
+								<tr>
+									<td style="padding:20px 24px;">
+										<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600; width:140px;">Semester</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= semesterName %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Amount Paid</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px; font-weight:700;">৳<%= amount %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Transaction ID</td>
+												<td style="padding:6px 0;">
+													<span style="display:inline-block; background-color:#DCFCE7; color:#14532D; font-family:monospace; font-size:13px; font-weight:700; padding:4px 10px; border-radius:6px;"><%= trxId %></span>
+												</td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Paid On</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= paidAt %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Method</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;">bKash</td>
+											</tr>
+										</table>
+									</td>
+								</tr>
+							</table>
+
+							<p style="margin:24px 0 0; color:#94a3b8; font-size:13px; line-height:1.6;">
+								Keep this email as your payment receipt. If you notice any discrepancy, contact the finance office with this transaction ID.
+							</p>
+						</td>
+					</tr>
+
+					<!-- Footer -->
+					<tr>
+						<td style="padding:24px 40px; background-color:#f8fafc; border-top:1px solid #e2e8f0;">
+							<p style="margin:0; color:#94a3b8; font-size:12px; text-align:center;">
+								&copy; University Management System. This is an automated message — please don't reply.
+							</p>
+						</td>
+					</tr>
+
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>

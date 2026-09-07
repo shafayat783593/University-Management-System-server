@@ -43,17 +43,9 @@ const initBkashPayment = async (
 	const bkashResponse = await bkashClient.createPayment({
 		amount: fee.amount,
 		invoiceNumber: fee.id,
-		callbackURL: config.bkash_callback_url,
+		callbackURL: `${config.bkash_callback_url}/payments/bkash/callback`,
 	});
 
-	// The paymentID <-> feeId link now lives in the database itself
-	// (Payment.paymentId, unique), not in Redis — this is the Healthcare
-	// project's pattern (appoinment.service.ts stores bkashPaymentId
-	// directly on the Payment row at booking time). No TTL, no risk of
-	// losing the mapping if Redis restarts between init and callback.
-	// upsert handles retries: if the student cancels and tries again,
-	// this overwrites the previous pending attempt instead of violating
-	// the one-Payment-per-Fee unique constraint.
 	await prisma.payment.upsert({
 		where: { feeId: fee.id },
 		create: {
@@ -109,9 +101,7 @@ const bkashCallback = async (paymentID: string, status: string) => {
 		return { success: true, message: "Already recorded as paid" };
 	}
 
-	// Execute OUTSIDE the DB transaction — it's a network call to bKash,
-	// keeping it out of the transaction keeps the transaction's lock
-	// window short (matches the Healthcare pattern's comment on this).
+
 	const executeResult = await bkashClient.executePayment(paymentID);
 
 	const updatedPayment = await prisma.$transaction(async (tx) => {
@@ -131,9 +121,7 @@ const bkashCallback = async (paymentID: string, status: string) => {
 		});
 	});
 
-	// Confirmation email — outside the transaction. If sending fails,
-	// that shouldn't roll back a payment that's already been captured;
-	// the student can still see it as PAID via /payments/my-fees.
+	
 	const feeWithStudent = await prisma.fee.findUnique({
 		where: { id: paymentRecord.feeId },
 		include: { student: { include: { user: true } }, semester: true },

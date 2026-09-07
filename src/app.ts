@@ -28,6 +28,7 @@ import { ExamRoutes } from "./app/module/exam/exam.route.js";
 import { ResultRoutes } from "./app/module/result/result.route.js";
 import { FeeRoutes } from "./app/module/fee/free.route.js";
 import { TranscriptRoutes } from "./app/module/transcript/transcript.route.js";
+import { AttendanceRoutes } from "./app/module/attendance/attendance.route.js";
 
 const app: Application = express();
 
@@ -45,7 +46,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Basic route
+
 app.get("/", async (req: Request, res: Response) => {
 	res.status(httpStatus.OK).json({
 		success: true,
@@ -53,9 +54,7 @@ app.get("/", async (req: Request, res: Response) => {
 	});
 });
 
-// Debug-only route — remove before submission, or gate it behind
-// NODE_ENV !== "production" if you want to keep it around for sanity
-// checks against the bKash sandbox.
+
 app.get("/test/bkash-token", async (req: Request, res: Response, next: NextFunction) => {
 	try {
 		const grantIdToken = await bkashClient.getGrantToken();
@@ -77,18 +76,14 @@ app.use("/api/v1/courses", CourseRoutes);
 app.use("/api/v1/semesters", SemesterRoutes);
 app.use("/api/v1/sections", SectionRoutes);
 app.use("/api/v1/enrollments", EnrollmentRoutes);
-// app.use("/api/v1/attendance", AttendanceRoutes);
+app.use("/api/v1/attendance", AttendanceRoutes);
 app.use("/api/v1/exams", ExamRoutes);
 app.use("/api/v1/results", ResultRoutes);
 app.use("/api/v1/fees", FeeRoutes);
 app.use("/api/v1/payments", PaymentRoutes);
 app.use("/api/v1/transcript", TranscriptRoutes);
 
-// notFound must come after every real route (so unmatched paths reach
-// it) and BEFORE globalErrorHandler (so the 404 error it raises has
-// somewhere to go). globalErrorHandler must be the very last app.use —
-// Express only routes next(err) forward to error middleware registered
-// after the point where the error was raised, never backward.
+
 app.use(notFound);
 app.use(globalErrorHandler);
 

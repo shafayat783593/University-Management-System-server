@@ -21,10 +21,8 @@ const main = async () => {
 		 
 		await transporter.verify();
 		console.log("Notemailer Connected successfully")
-		// await seedSuperAdmin()
-		// await seedTesterDoctor()
+	
 		await seedTesterAdmin()
-		// await deleteUnverifiedAndRejectedDoctors()
 		app.listen(PORT, () => {
 			console.log(`Server is running on port ${PORT}`);
 		});
