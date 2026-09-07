@@ -3,16 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-      "dev": "tsx watch src/server.ts",
-    "build": "tsup",
-    "start": "node dist/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "format:check": "npx @biomejs/biome format ./src",
-    "format:fix": "npx @biomejs/biome format --write ./src",
-    "lint:check": "npx @biomejs/biome lint ./src",
-    "lint:fix": "npx @biomejs/biome lint --write ./src"
-  },
+ "scripts": {
+  "postinstall": "prisma generate",
+  "dev": "tsx watch src/server.ts",
+  "build": "tsup",
+  "start": "node dist/server.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
