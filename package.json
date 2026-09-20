@@ -3,13 +3,13 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
- "scripts": {
-  "postinstall": "prisma generate",
-  "dev": "tsx watch src/server.ts",
-  "build": "tsup",
-  "start": "node dist/server.js",
-  "vercel-build": "prisma generate"
-},
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup",
+    "start": "node dist/server.js",
+    "vercel-build": "prisma generate"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -46,6 +46,7 @@
     "pdfkit": "^0.20.2",
     "pg": "^8.23.0",
     "prisma": "^7.10.0",
+    "rate-limiter-flexible": "^11.2.1",
     "redis": "^6.2.1",
     "tsup": "^8.5.1",
     "zod": "^4.5.4"

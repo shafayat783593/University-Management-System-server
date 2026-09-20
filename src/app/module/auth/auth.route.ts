@@ -1,20 +1,23 @@
-
-
 import { Router } from "express";
+import { rateLimit } from "../../utils/Ratelimit.js";
+import { authRateLimiter } from "../../utils/Ratelimiter.js";
 import { AuthController } from "./auth.controller.js";
 import { Role } from "../../../generated/prisma/enums.js";
 import { auth } from "../../middleware/auth.js";
-import { upload } from "../../lib/multer.js";
 
 
 const router = Router();
 
-router.post("/register", AuthController.register);
+router.post("/register", rateLimit(authRateLimiter), AuthController.register);
 router.post("/verify-email", AuthController.verifyEmail);
-router.post("/login", AuthController.login);
+router.post("/login", rateLimit(authRateLimiter), AuthController.login);
 router.post("/google", AuthController.googleLogin);
-router.post("/refresh-token", AuthController.refreshToken);
-router.post("/forgot-password", AuthController.forgotPassword);
+router.post("/refresh-token",rateLimit(authRateLimiter),AuthController.refreshToken,);
+router.post(
+	"/forgot-password",
+	rateLimit(authRateLimiter),
+	AuthController.forgotPassword,
+);
 router.post("/reset-password", AuthController.resetPassword);
 
 router.get(
@@ -23,13 +26,11 @@ router.get(
 	AuthController.getMe,
 );
 router.post("/complete-profile", auth(Role.STUDENT), AuthController.completeProfile);
-
 router.patch(
 	"/change-password",
 	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),
 	AuthController.changePassword,
 );
-
 router.patch(
 	"/profile-image",
 	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),

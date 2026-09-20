@@ -29,6 +29,7 @@ import { TranscriptRoutes } from "./app/module/transcript/transcript.route.js";
 import { AttendanceRoutes } from "./app/module/attendance/attendance.route.js";
 import { FeeRoutes } from "./app/module/Fee/free.route.js";
 import { InstructorRoutes } from "./app/module/Instructor/Instructor.route.js";
+import { AnnouncementRoutes } from "./app/module/announcement/announcement.route.js";
 
 const app: Application = express();
 
@@ -81,6 +82,7 @@ app.use("/api/v1/results", ResultRoutes);
 app.use("/api/v1/fees", FeeRoutes);
 app.use("/api/v1/payments", PaymentRoutes);
 app.use("/api/v1/transcript", TranscriptRoutes);
+app.use("/api/v1/announcements", AnnouncementRoutes);
 
 
 app.use(notFound);
