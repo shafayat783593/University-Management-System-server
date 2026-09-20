@@ -1,23 +1,14 @@
 import { Router } from "express";
-import { Role } from "../../../generated/prisma/enums.js";
-import { auth } from "../../middleware/auth.js";
 import { DepartmentController } from "./department.controller.js";
-import { validateRequest } from "../../middleware/validateRequest.js";
 import { DepartmentValidation } from "./departmentValidate.js";
-
+import { Role } from "../../../generated/prisma/enums.js";
+import { validateRequest } from "../../middleware/validateRequest.js";
+import { auth } from "../../middleware/auth.js";
 
 const router = Router();
 
-router.get(
-	"/",
-	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),
-	DepartmentController.getAllDepartments,
-);
-router.get(
-	"/:id",
-	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),
-	DepartmentController.getDepartmentById,
-);
+router.get("/", DepartmentController.getAllDepartments);
+router.get("/:id", DepartmentController.getDepartmentById);
 router.post(
 	"/",
 	auth(Role.ADMIN),

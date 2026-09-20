@@ -19,7 +19,7 @@ import config from "../../config/index.js";
 
 import { IQuary } from "../../interface/index.js";
 import { InstructorProfileWhereInput } from "../../../generated/prisma/models.js";
-import { IApplyAsInstructorPayload, IReviewInstructorPayload, IVerifyInstructorEmailPayload } from "./instructor.interface.js";
+import { IApplyAsInstructorPayload, IReviewInstructorPayload, IVerifyInstructorEmailPayload } from "./Instructor.interface.js";
 
 const OTP_TTL_SECONDS = 60 * 60;
 

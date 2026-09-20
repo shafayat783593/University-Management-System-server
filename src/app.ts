@@ -20,15 +20,15 @@ import { EnrollmentRoutes } from "./app/module/enrollment/enrollment.route.js";
 
 import { PaymentRoutes } from "./app/module/payment/payment.route.js";
 import { AuthRoutes } from "./app/module/auth/auth.route.js";
-import { InstructorRoutes } from "./app/module/instructor/instructor.route.js";
 import { DepartmentRoutes } from "./app/module/department/department.route.js";
 import { notFound } from "./app/middleware/notFound.js";
 import { globalErrorHandler } from "./app/middleware/globalErrorHandler.js";
 import { ExamRoutes } from "./app/module/exam/exam.route.js";
 import { ResultRoutes } from "./app/module/result/result.route.js";
-import { FeeRoutes } from "./app/module/fee/free.route.js";
 import { TranscriptRoutes } from "./app/module/transcript/transcript.route.js";
 import { AttendanceRoutes } from "./app/module/attendance/attendance.route.js";
+import { FeeRoutes } from "./app/module/Fee/free.route.js";
+import { InstructorRoutes } from "./app/module/Instructor/Instructor.route.js";
 
 const app: Application = express();
 
