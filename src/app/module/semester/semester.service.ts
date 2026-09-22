@@ -2,7 +2,7 @@
 
 
 import httpStatus from "http-status";
-import { ICreateSemesterPayload, IUpdateSemesterStatusPayload } from "./semester.interface.js";
+import { ICreateSemesterPayload, IUpdateSemesterDatesPayload, IUpdateSemesterStatusPayload } from "./semester.interface.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
 import { SemesterStatus } from "../../../generated/prisma/enums.js";
@@ -176,9 +176,68 @@ const updateSemesterStatus = async (
 	});
 };
 
+
+const updateSemesterDates = async (
+	id: string,
+	payload: IUpdateSemesterDatesPayload,
+) => {
+	await getSemesterById(id);
+ 
+	return prisma.semester.update({
+		where: { id },
+		data: {
+			enrollmentStart: payload.enrollmentStart ? new Date(payload.enrollmentStart) : undefined,
+			enrollmentEnd: payload.enrollmentEnd ? new Date(payload.enrollmentEnd) : undefined,
+			examWeekStart: payload.examWeekStart ? new Date(payload.examWeekStart) : undefined,
+			examWeekEnd: payload.examWeekEnd ? new Date(payload.examWeekEnd) : undefined,
+			resultPublishDate: payload.resultPublishDate
+				? new Date(payload.resultPublishDate)
+				: undefined,
+		},
+	});
+};
+ 
+/**
+ * Public, read-only — just reshapes the date fields already on Semester
+ * into a flat list of events. No new table, nothing to keep in sync.
+ */
+const getSemesterCalendar = async (id: string) => {
+	const semester = await getSemesterById(id);
+ 
+	const events: { type: string; label: string; start: Date | null; end: Date | null }[] = [
+		{
+			type: "ENROLLMENT",
+			label: "Enrollment Window",
+			start: semester.enrollmentStart,
+			end: semester.enrollmentEnd,
+		},
+		{
+			type: "EXAM",
+			label: "Exam Week",
+			start: semester.examWeekStart,
+			end: semester.examWeekEnd,
+		},
+		{
+			type: "RESULT",
+			label: "Result Publish Date",
+			start: semester.resultPublishDate,
+			end: semester.resultPublishDate,
+		},
+	];
+ 
+	return {
+		semesterId: semester.id,
+		semesterName: semester.name,
+		events: events.filter((e) => e.start !== null), // skip events Admin hasn't set yet
+	};
+};
+ 
+
 export const SemesterService = {
 	createSemester,
 	getAllSemesters,
 	getSemesterById,
 	updateSemesterStatus,
+	updateSemesterDates,
+	getSemesterCalendar
 };

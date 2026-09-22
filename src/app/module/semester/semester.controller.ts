@@ -55,9 +55,33 @@ const updateSemesterStatus = catchAsync(async (req:Request, res:Response) => {
 	});
 });
 
+
+
+const updateSemesterDates = catchAsync(async (req, res) => {
+	const result = await SemesterService.updateSemesterDates(req.params.id as string, req.body);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Semester dates updated",
+		data: result,
+	});
+});
+ 
+const getSemesterCalendar = catchAsync(async (req, res) => {
+	const result = await SemesterService.getSemesterCalendar(req.params.id as string);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Semester calendar retrieved",
+		data: result,
+	});
+});
+
 export const SemesterController = {
 	createSemester,
 	getAllSemesters,
 	getSemesterById,
 	updateSemesterStatus,
+	updateSemesterDates,
+	getSemesterCalendar
 };

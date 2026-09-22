@@ -3,9 +3,8 @@ import httpStatus from "http-status";
 import crypto from "crypto";
 import path from "path";
 import ejs from "ejs";
+import { format } from "date-fns";
 import type { SignOptions, JwtPayload } from "jsonwebtoken";
-import { jwtUtils } from "../../utils/jwt.js";
-import config from "../../config/index.js";
 
 
 import type {
@@ -20,17 +19,59 @@ import type {
 	IUpdateStudentProfilePayload,
 	IVerifyEmailPayload,
 } from "./auth.interface.js";
-import { prisma } from "../../lib/prisma.js";
+
+
+import { AuthProvider, Role, UserStatus } from "../../../generated/prisma/enums.js";
+import { jwtUtils } from "../../utils/jwt.js";
+import config from "../../config/index.js";
 import { AppError } from "../../utils/AppError.js";
+import { prisma } from "../../lib/prisma.js";
 import { redisClient } from "../../lib/redis.js";
 import { transporter } from "../../lib/nodmailer.js";
-import { AuthProvider, Role, UserStatus } from "../../../generated/prisma/enums.js";
-import type { UserModel } from "../../../generated/prisma/models/User.js";
 import { googleClient } from "../../lib/googleAuth.js";
 import { cloudinary } from "../../lib/cloudinary.js";
+import { pdfGenerator } from "../result/pdf.js";
 
 const OTP_TTL_SECONDS = 5 * 60;
 
+const issueTokenPair = (user: {
+	id: string;
+	name: string;
+	email: string;
+	role: Role;
+}) => {
+	const jwtPayload = {
+		userId: user.id,
+		name: user.name,
+		email: user.email,
+		role: user.role,
+	};
+
+	const accessToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_access_secret,
+		config.jwt_access_expires_in as SignOptions,
+	);
+	const refreshToken = jwtUtils.createToken(
+		jwtPayload,
+		config.jwt_refresh_secret,
+		config.jwt_refresh_expires_in as SignOptions,
+	);
+
+	return { accessToken, refreshToken };
+};
+
+const assertUserIsUsable = (user: {
+	status: UserStatus;
+	isDeleted: boolean;
+}) => {
+	if (user.status === UserStatus.BLOCKED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
+	}
+	if (user.isDeleted || user.status === UserStatus.DELETED) {
+		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
+	}
+};
 
 const registerStudent = async (payload: IRegisterStudentPayload) => {
 	const email = payload.email.trim().toLowerCase();
@@ -137,28 +178,8 @@ const verifyStudentEmail = async (payload: IVerifyEmailPayload) => {
 	});
 
 	await redisClient.del([otpKey, dataKey]);
-	const jwtPayload = {
-		userId: createdUser.id,
-		name: createdUser.name,
-		email: createdUser.email,
-		role: createdUser.role,
-	};
 
-	const accessToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_access_secret,
-		config.jwt_access_expires_in as SignOptions,
-	);
-	const refreshToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_refresh_secret,
-		config.jwt_refresh_expires_in as SignOptions,
-	);
-
-	return {
-		refreshToken,
-		accessToken
-	}
+	return issueTokenPair(createdUser);
 };
 
 const loginUser = async (payload: ILoginUserPayload) => {
@@ -168,12 +189,7 @@ const loginUser = async (payload: ILoginUserPayload) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-		if (user.status === UserStatus.BLOCKED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
-	}
-	if (user.isDeleted || user.status === UserStatus.DELETED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
-	}
+	assertUserIsUsable(user);
 
 	if (!user.password) {
 		throw new AppError(
@@ -192,25 +208,7 @@ const loginUser = async (payload: ILoginUserPayload) => {
 		throw new AppError(httpStatus.UNAUTHORIZED, "Invalid credentials");
 	}
 
-	const jwtPayload = {
-		userId: user.id,
-		name: user.name,
-		email: user.email,
-		role: user.role,
-	};
-
-	const accessToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_access_secret,
-		config.jwt_access_expires_in as SignOptions,
-	);
-	const refreshToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_refresh_secret,
-		config.jwt_refresh_expires_in as SignOptions,
-	);
-
-	return { accessToken, refreshToken, needPasswordChange:user.needPasswordChange };
+	return { ...issueTokenPair(user), needPasswordChange: user.needPasswordChange };
 };
 
 const getMe = async (user: IRequestUser) => {
@@ -236,148 +234,67 @@ const refreshToken = async (token: string) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-		if (user.status === UserStatus.BLOCKED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
-	}
-	if (user.isDeleted || user.status === UserStatus.DELETED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
-	}
+	assertUserIsUsable(user);
 
-
-	const jwtPayload = {
-		userId: user.id,
-		name: user.name,
-		email: user.email,
-		role: user.role,
-	};
-
-	const accessToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_access_secret,
-		config.jwt_access_expires_in as SignOptions,
-	);
-	const refreshToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_refresh_secret,
-		config.jwt_refresh_expires_in as SignOptions,
-	);
-	return { accessToken, refreshToken };
+	return issueTokenPair(user);
 };
 
-
+/**
+ * Fixed version of the Healthcare-server googleLogin bug:
+ * - single lookup by `email`, the only field that's actually unique in the
+ *   schema (no compound findUnique on {email, role, googleId})
+ * - no unconditional throw after create/update
+ * - no `gooleId` / `googlProvider` field-name typos
+ *
+ * Design note: Google gives us no department, so a brand-new Google
+ * signup creates the User only. Downstream code must check
+ * `user.studentProfile === null` and block enrollment until the student
+ * calls POST /auth/complete-profile.
+ */
 const googleLogin = async (payload: IGoogleLoginPayload) => {
-	let googleTokenPayload: {
-		email?: string;
-		name?: string;
-		sub?: string;
-	} | null | undefined;
-
+	let tokenPayload;
 	try {
 		const ticket = await googleClient.verifyIdToken({
 			idToken: payload.idToken,
 			audience: config.google_client_id,
 		});
-		googleTokenPayload = ticket.getPayload();
-	} catch (error) {
-		console.log("Google ID token verification failed:", error);
+		tokenPayload = ticket.getPayload();
+	} catch {
 		throw new AppError(
 			httpStatus.UNAUTHORIZED,
 			"Invalid or expired Google ID token",
 		);
 	}
 
-	if (!googleTokenPayload) {
-		throw new AppError(
-			httpStatus.UNAUTHORIZED,
-			"Invalid or expired Google ID token",
-		);
+	if (!tokenPayload?.email) {
+		throw new AppError(httpStatus.BAD_REQUEST, "Google account has no email");
 	}
 
-	const googleEmail = googleTokenPayload.email;
-	const googleName = googleTokenPayload.name;
-	if (!googleEmail) {
-		throw new AppError(httpStatus.BAD_REQUEST, "Google email not found");
-	}
-	if (!googleName) {
-		throw new AppError(httpStatus.BAD_REQUEST, "Google name not found");
-	}
+	const email = tokenPayload.email.trim().toLowerCase();
+	let user = await prisma.user.findUnique({ where: { email } });
 
-	const email = googleEmail.trim().toLowerCase();
-	const existing = await prisma.user.findUnique({ where: { email } });
-
-	// Google login is only allowed for student accounts.
-	let user: UserModel;
-
-	if (existing) {
-		if (existing.role !== Role.STUDENT) {
-			throw new AppError(
-				httpStatus.FORBIDDEN,
-				"This email is registered as a non-student account",
-			);
-		}
-
-		if (existing.authProvider === AuthProvider.GOOGLE) {
-			// Already a Google student — normal returning login.
-			user = existing;
-		} else {
-			// Student registered with credentials; link this Google account.
-			if (!existing.emailVerified) {
-				throw new AppError(httpStatus.FORBIDDEN, "Email not verified");
-			}
-			if (existing.status === UserStatus.BLOCKED) {
-				throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
-			}
-			if (existing.isDeleted || existing.status === UserStatus.DELETED) {
-				throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
-			}
-			user = await prisma.user.update({
-				where: { id: existing.id },
-				data: {
-					googleId: googleTokenPayload.sub,
-					authProvider: AuthProvider.GOOGLE,
-					emailVerified: true,
-				},
-			});
-		}
-
-		if (user.status === UserStatus.BLOCKED) {
-			throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
-		}
-		if (user.isDeleted || user.status === UserStatus.DELETED) {
-			throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
-		}
-	} else {
-	
+	if (!user) {
 		user = await prisma.user.create({
 			data: {
-				name: googleName,
+				name: tokenPayload.name ?? email,
 				email,
 				role: Role.STUDENT,
 				authProvider: AuthProvider.GOOGLE,
-				googleId: googleTokenPayload.sub,
+				googleId: tokenPayload.sub,
 				emailVerified: true,
 			},
 		});
+	} else {
+		assertUserIsUsable(user);
+		if (!user.googleId) {
+			user = await prisma.user.update({
+				where: { id: user.id },
+				data: { googleId: tokenPayload.sub },
+			});
+		}
 	}
 
-	const jwtPayload = {
-		userId: user.id,
-		name: user.name,
-		email: user.email,
-		role: user.role,
-	};
-
-	const accessToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_access_secret,
-		config.jwt_access_expires_in as SignOptions,
-	);
-	const refreshToken = jwtUtils.createToken(
-		jwtPayload,
-		config.jwt_refresh_secret,
-		config.jwt_refresh_expires_in as SignOptions,
-	);
-	return { accessToken, refreshToken };
+	return issueTokenPair(user);
 };
 
 const completeProfile = async (
@@ -414,12 +331,8 @@ const forgotPassword = async (payload: IForgotPasswordPayload) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-	if (user.status === UserStatus.BLOCKED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
-	}
-	if (user.isDeleted || user.status === UserStatus.DELETED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
-	}	if (!user.password) {
+	assertUserIsUsable(user);
+	if (!user.password) {
 		throw new AppError(httpStatus.CONFLICT, "This account uses Google sign-in");
 	}
 
@@ -453,12 +366,8 @@ const resetPassword = async (payload: IResetPasswordPayload) => {
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
-	if (user.status === UserStatus.BLOCKED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is blocked");
-	}
-	if (user.isDeleted || user.status === UserStatus.DELETED) {
-		throw new AppError(httpStatus.FORBIDDEN, "User is deleted");
-	}
+	assertUserIsUsable(user);
+
 	const key = `forgot-password-otp:${email}`;
 	const storedOtp = await redisClient.get(key);
 	if (!storedOtp || storedOtp !== payload.otp) {
@@ -507,7 +416,10 @@ const changePassword = async (
 	});
 };
 
-
+/**
+ * Available to every role — Student, Instructor, and Admin all have a
+ * User row, so this lives here rather than duplicated per-role.
+ */
 const updateProfileImage = async (
 	userId: string,
 	file: Express.Multer.File | undefined,
@@ -515,12 +427,12 @@ const updateProfileImage = async (
 	if (!file) {
 		throw new AppError(httpStatus.BAD_REQUEST, "Image file is required");
 	}
- 
+
 	const user = await prisma.user.findUnique({ where: { id: userId } });
 	if (!user) {
 		throw new AppError(httpStatus.NOT_FOUND, "User not found");
 	}
- 
+
 	const uploadResult = await new Promise<{ secure_url: string; public_id: string }>(
 		(resolve, reject) => {
 			cloudinary.uploader
@@ -536,12 +448,13 @@ const updateProfileImage = async (
 				.end(file.buffer);
 		},
 	);
- 
-	
+
+	// Clean up the old image so Cloudinary doesn't accumulate orphaned
+	// files every time someone updates their picture.
 	if (user.imagePublicId) {
 		await cloudinary.uploader.destroy(user.imagePublicId).catch(() => null);
 	}
- 
+
 	return prisma.user.update({
 		where: { id: userId },
 		data: {
@@ -551,8 +464,12 @@ const updateProfileImage = async (
 		omit: { password: true },
 	});
 };
- 
 
+/**
+ * Student-only, optional info beyond what's needed at registration —
+ * every field here is nullable/optional in the schema, so leaving them
+ * unset never blocks anything else (enrollment, results, etc.).
+ */
 const updateStudentProfile = async (
 	userId: string,
 	payload: IUpdateStudentProfilePayload,
@@ -561,7 +478,7 @@ const updateStudentProfile = async (
 	if (!student) {
 		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
 	}
- 
+
 	return prisma.studentProfile.update({
 		where: { userId },
 		data: {
@@ -574,10 +491,26 @@ const updateStudentProfile = async (
 		},
 	});
 };
- 
 
+const generateIdCard = async (userId: string) => {
+	const student = await prisma.studentProfile.findUnique({
+		where: { userId },
+		include: { user: true, department: true },
+	});
+	if (!student) {
+		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	}
 
+	const buffer = await pdfGenerator.generateStudentIdCardPdf({
+		studentName: student.user.name,
+		studentIdCode: student.studentIdCode,
+		departmentName: student.department.name,
+		imageUrl: student.user.imageUrl,
+		issuedDate: format(new Date(), "dd MMM yyyy"),
+	});
 
+	return { buffer, student };
+};
 
 export const AuthService = {
 	registerStudent,
@@ -590,6 +523,7 @@ export const AuthService = {
 	forgotPassword,
 	resetPassword,
 	changePassword,
-		updateProfileImage,
+	updateProfileImage,
 	updateStudentProfile,
+	generateIdCard,
 };

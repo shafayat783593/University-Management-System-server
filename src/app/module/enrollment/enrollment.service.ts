@@ -176,6 +176,8 @@ const dropEnrollment = async (userId: string, sectionId: string) => {
 	}
 
 	const enrollment = await prisma.enrollment.findUnique({
+
+		
 		where: { studentId_sectionId: { studentId: student.id, sectionId } },
 		include: { section: { include: { semester: true } } },
 	});
@@ -217,8 +219,52 @@ const getMyEnrollments = async (userId: string) => {
 	});
 };
 
+
+
+const withdrawEnrollment = async (userId: string, sectionId: string) => {
+	const student = await prisma.studentProfile.findUnique({ where: { userId } });
+	if (!student) {
+		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	}
+ 
+	const enrollment = await prisma.enrollment.findUnique({
+		where: { studentId_sectionId: { studentId: student.id, sectionId } },
+		include: { section: { include: { semester: true } } },
+	});
+	if (!enrollment || enrollment.status !== EnrollmentStatus.ENROLLED) {
+		throw new AppError(httpStatus.NOT_FOUND, "Active enrollment not found");
+	}
+ 
+	if (enrollment.section.semester.status === SemesterStatus.CLOSED) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			"Cannot withdraw from a course in a closed semester",
+		);
+	}
+ 
+	const publishedResultCount = await prisma.result.count({
+		where: {
+			studentId: student.id,
+			status: ResultStatus.PUBLISHED,
+			exam: { sectionId },
+		},
+	});
+	if (publishedResultCount > 0) {
+		throw new AppError(
+			httpStatus.BAD_REQUEST,
+			"Cannot withdraw — this course already has a published result",
+		);
+	}
+ 
+	return prisma.enrollment.update({
+		where: { id: enrollment.id },
+		data: { status: EnrollmentStatus.WITHDRAWN, droppedAt: new Date() },
+	});
+};
+
 export const EnrollmentService = {
 	createEnrollment,
 	dropEnrollment,
 	getMyEnrollments,
+	withdrawEnrollment
 };

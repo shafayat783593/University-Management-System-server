@@ -18,4 +18,10 @@ router.delete(
 	EnrollmentController.dropEnrollment,
 );
 
+router.patch(
+	"/:sectionId/withdraw",
+	auth(Role.STUDENT),
+	EnrollmentController.withdrawEnrollment,
+);
+
 export const EnrollmentRoutes = router;

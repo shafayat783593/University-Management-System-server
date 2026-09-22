@@ -24,6 +24,7 @@ enum SemesterStatus {
 enum EnrollmentStatus {
   ENROLLED
   DROPPED
+  WITHDRAWN
 }
 
 enum AttendanceStatus {

@@ -33,4 +33,18 @@ router.patch(
 	SemesterController.updateSemesterStatus,
 );
 
+
+router.patch(
+	"/:id/status",
+	auth(Role.ADMIN),
+	validateRequest(SemesterValidation.updateSemesterStatusZodSchema),
+	SemesterController.updateSemesterStatus,
+);
+router.patch(
+	"/:id/dates",
+	auth(Role.ADMIN),
+	validateRequest(SemesterValidation.updateSemesterDatesZodSchema),
+	SemesterController.updateSemesterDates,
+);
+
 export const SemesterRoutes = router;

@@ -43,8 +43,22 @@ const getMyEnrollments = catchAsync(async (req:Request, res:Response) => {
 	});
 });
 
+
+const withdrawEnrollment = catchAsync(async (req, res) => {
+	// @ts-expect-error req.user is attached by the auth() middleware
+	const result = await EnrollmentService.withdrawEnrollment(req.user.userId, req.params.sectionId);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Withdrawn successfully",
+		data: result,
+	});
+});
+
+
 export const EnrollmentController = {
 	createEnrollment,
 	dropEnrollment,
 	getMyEnrollments,
+	withdrawEnrollment
 };

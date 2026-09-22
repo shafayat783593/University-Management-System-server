@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { rateLimit } from "../../utils/Ratelimit.js";
-import { authRateLimiter } from "../../utils/Ratelimiter.js";
+import { authRateLimiter, refreshRateLimiter } from "../../utils/Ratelimiter.js";
 import { AuthController } from "./auth.controller.js";
-import { Role } from "../../../generated/prisma/enums.js";
 import { auth } from "../../middleware/auth.js";
+import { Role } from "../../../generated/prisma/enums.js";
+import { upload } from "../../lib/multer.js";
 
 
 const router = Router();
@@ -12,7 +13,11 @@ router.post("/register", rateLimit(authRateLimiter), AuthController.register);
 router.post("/verify-email", AuthController.verifyEmail);
 router.post("/login", rateLimit(authRateLimiter), AuthController.login);
 router.post("/google", AuthController.googleLogin);
-router.post("/refresh-token",rateLimit(authRateLimiter),AuthController.refreshToken,);
+router.post(
+	"/refresh-token",
+	rateLimit(refreshRateLimiter),
+	AuthController.refreshToken,
+);
 router.post(
 	"/forgot-password",
 	rateLimit(authRateLimiter),
@@ -42,5 +47,6 @@ router.patch(
 	auth(Role.STUDENT),
 	AuthController.updateStudentProfile,
 );
+router.get("/id-card", auth(Role.STUDENT), AuthController.downloadIdCard);
 
 export const AuthRoutes = router;

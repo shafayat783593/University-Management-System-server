@@ -1,9 +1,41 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { AuthService } from "./auth.service.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import httpStatus from "http-status";
 import config from "../../config/index.js";
+
+const ACCESS_TOKEN_MAX_AGE = 1000 * 60 * 60 * 24; // 1 day
+const REFRESH_TOKEN_MAX_AGE = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+const setAuthCookies = (
+	res: Response,
+	tokens: { accessToken: string; refreshToken: string },
+) => {
+	// Frontend and backend are different domains (two separate Vercel
+	// deployments), so this is a cross-site cookie. Cross-site cookies
+	// are only accepted by browsers when Secure is true AND
+	// SameSite=None — `secure: false` here would make Chrome/Firefox
+	// silently drop the Set-Cookie header in production, which is
+	// exactly the "token not saving" symptom this would otherwise cause.
+	// Locally (http://localhost), SameSite=Lax + no Secure is what
+	// actually works, so this branches on environment rather than
+	// hardcoding one or the other.
+	const isProduction = config.node_env === "production";
+
+	res.cookie("accessToken", tokens.accessToken, {
+		httpOnly: true,
+		secure: isProduction,
+		sameSite: isProduction ? "none" : "lax",
+		maxAge: ACCESS_TOKEN_MAX_AGE,
+	});
+	res.cookie("refreshToken", tokens.refreshToken, {
+		httpOnly: true,
+		secure: isProduction,
+		sameSite: isProduction ? "none" : "lax",
+		maxAge: REFRESH_TOKEN_MAX_AGE,
+	});
+};
 
 const register = catchAsync(async (req: Request, res: Response) => {
 	await AuthService.registerStudent(req.body);
@@ -17,21 +49,7 @@ const register = catchAsync(async (req: Request, res: Response) => {
 
 const verifyEmail = catchAsync(async (req: Request, res: Response) => {
 	const result = await AuthService.verifyStudentEmail(req.body);
-	const { accessToken, refreshToken } = result;
-
-res.cookie("accessToken", accessToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24, // 24 hour or 1 day
-	});
-	res.cookie("refreshToken", refreshToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-	});
-
+	setAuthCookies(res, result);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.CREATED,
@@ -40,60 +58,25 @@ res.cookie("accessToken", accessToken, {
 	});
 });
 
-const loginUser = catchAsync(async (req: Request, res: Response) => {
-	const payload = req.body;
-	const result = await AuthService.loginUser(payload);
-	const { accessToken, refreshToken } = result;
-
-	res.cookie("accessToken", accessToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24, // 24 hour or 1 day
-	});
-	res.cookie("refreshToken", refreshToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-	});
-
+const login = catchAsync(async (req: Request, res: Response) => {
+	const result = await AuthService.loginUser(req.body);
+	setAuthCookies(res, result);
 	sendResponse(res, {
-		statusCode: httpStatus.OK,
 		success: true,
+		statusCode: httpStatus.OK,
 		message: "Login successful",
-		data: {
-			accessToken,
-			refreshToken,
-		},
+		data: result,
 	});
 });
 
 const googleLogin = catchAsync(async (req: Request, res: Response) => {
 	const result = await AuthService.googleLogin(req.body);
-	const { accessToken, refreshToken } = result;
-
-res.cookie("accessToken", accessToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24, // 24 hour or 1 day
-	});
-	res.cookie("refreshToken", refreshToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-	});
-
+	setAuthCookies(res, result);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
 		message: "Login successful",
-		data: {
-			accessToken,
-			refreshToken,
-		},
+		data: result,
 	});
 });
 
@@ -120,23 +103,9 @@ const getMe = catchAsync(async (req: Request, res: Response) => {
 });
 
 const refreshToken = catchAsync(async (req: Request, res: Response) => {
-	const token = req.body.refreshToken ?? req.cookies?.refreshToken;
+	const token = req.cookies?.refreshToken ?? req.body.refreshToken;
 	const result = await AuthService.refreshToken(token);
-	const { accessToken, refreshToken: newRefreshToken } = result;
-
-	res.cookie("accessToken", accessToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24, // 24 hour or 1 day
-	});
-	res.cookie("refreshToken", refreshToken, {
-		httpOnly: true,
-		secure: config.node_env === "development" ? false : true,
-		sameSite: "lax",
-		maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-	});
-
+	setAuthCookies(res, result);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -176,7 +145,6 @@ const changePassword = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
-
 const updateProfileImage = catchAsync(async (req: Request, res: Response) => {
 	const user = req.user!;
 	const file = req.file as Express.Multer.File | undefined;
@@ -188,7 +156,7 @@ const updateProfileImage = catchAsync(async (req: Request, res: Response) => {
 		data: result,
 	});
 });
- 
+
 const updateStudentProfile = catchAsync(async (req: Request, res: Response) => {
 	const user = req.user!;
 	const result = await AuthService.updateStudentProfile(user.userId, req.body);
@@ -199,12 +167,22 @@ const updateStudentProfile = catchAsync(async (req: Request, res: Response) => {
 		data: result,
 	});
 });
- 
+
+const downloadIdCard = catchAsync(async (req: Request, res: Response) => {
+	const user = req.user!;
+	const { buffer, student } = await AuthService.generateIdCard(user.userId);
+	res.setHeader("Content-Type", "application/pdf");
+	res.setHeader(
+		"Content-Disposition",
+		`inline; filename="id-card-${student.studentIdCode}.pdf"`,
+	);
+	res.send(buffer);
+});
 
 export const AuthController = {
 	register,
 	verifyEmail,
-	login: loginUser,
+	login,
 	googleLogin,
 	completeProfile,
 	getMe,
@@ -213,5 +191,6 @@ export const AuthController = {
 	resetPassword,
 	changePassword,
 	updateProfileImage,
-	updateStudentProfile
+	updateStudentProfile,
+	downloadIdCard,
 };

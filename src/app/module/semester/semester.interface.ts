@@ -2,7 +2,6 @@ import { SemesterStatus } from "../../../generated/prisma/enums.js";
 
 
 
- 
 export interface ICreateSemesterPayload {
 	name: string;
 	year: number;
@@ -10,9 +9,15 @@ export interface ICreateSemesterPayload {
 	enrollmentStart?: string;
 	enrollmentEnd?: string;
 }
- 
+
 export interface IUpdateSemesterStatusPayload {
 	status: SemesterStatus;
 }
- 
 
+export interface IUpdateSemesterDatesPayload {
+	enrollmentStart?: string;
+	enrollmentEnd?: string;
+	examWeekStart?: string;
+	examWeekEnd?: string;
+	resultPublishDate?: string;
+}

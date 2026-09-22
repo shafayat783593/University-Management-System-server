@@ -12,3 +12,12 @@ export const authRateLimiter = new RateLimiterRedis({
 	duration: 15 * 60,
 	blockDuration: 15 * 60,
 });
+
+
+export const refreshRateLimiter = new RateLimiterRedis({
+  storeClient: redisClient,
+  keyPrefix: "rl:refresh",
+  points: 10,
+  duration: 15 * 60,
+  blockDuration: 15 * 60,
+});

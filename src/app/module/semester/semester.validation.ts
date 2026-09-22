@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 import { SemesterStatus } from "../../../generated/prisma/enums.js";
 
@@ -14,7 +13,16 @@ const updateSemesterStatusZodSchema = z.object({
 	status: z.enum(SemesterStatus),
 });
 
+const updateSemesterDatesZodSchema = z.object({
+	enrollmentStart: z.string().optional(),
+	enrollmentEnd: z.string().optional(),
+	examWeekStart: z.string().optional(),
+	examWeekEnd: z.string().optional(),
+	resultPublishDate: z.string().optional(),
+});
+
 export const SemesterValidation = {
 	createSemesterZodSchema,
 	updateSemesterStatusZodSchema,
+	updateSemesterDatesZodSchema,
 };
