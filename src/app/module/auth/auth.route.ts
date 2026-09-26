@@ -48,5 +48,6 @@ router.patch(
 	AuthController.updateStudentProfile,
 );
 router.get("/id-card", auth(Role.STUDENT), AuthController.downloadIdCard);
+router.post("/logout", AuthController.logout)
 
 export const AuthRoutes = router;

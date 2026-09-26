@@ -3,8 +3,8 @@ import { upload } from "../../lib/multer.js";
 import { validateRequest } from "../../middleware/validateRequest.js";
 import { auth } from "../../middleware/auth.js";
 import { Role } from "../../../generated/prisma/enums.js";
-import { InstructorValidation } from "./instructor.viladation.js";
-import { InstructorController } from "./instructor.controller.js";
+import { InstructorValidation } from "./Instructor.viladation.js";
+import { InstructorController } from "./Instructor.controller.js";
 
 
 

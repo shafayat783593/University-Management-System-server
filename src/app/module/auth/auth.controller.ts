@@ -179,6 +179,19 @@ const downloadIdCard = catchAsync(async (req: Request, res: Response) => {
 	res.send(buffer);
 });
 
+
+
+const logout = catchAsync(async(req:Request,res:Response)=>{
+	
+	res.clearCookie("accessToken");
+	res.clearCookie("refreshToken");
+		sendResponse(res, {
+		statusCode: httpStatus.OK,
+		success: true,
+		message: "User logged out successfully",
+		data:null
+	});
+})
 export const AuthController = {
 	register,
 	verifyEmail,
@@ -193,4 +206,5 @@ export const AuthController = {
 	updateProfileImage,
 	updateStudentProfile,
 	downloadIdCard,
+	logout
 };
