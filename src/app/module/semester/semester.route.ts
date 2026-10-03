@@ -15,6 +15,9 @@ router.get(
 	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),
 	SemesterController.getAllSemesters,
 );
+// Public academic calendar — read-only reshape of the semester's date
+// fields, no auth required (used by the public marketing site).
+router.get("/:id/calendar", SemesterController.getSemesterCalendar);
 router.get(
 	"/:id",
 	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),

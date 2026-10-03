@@ -18,12 +18,13 @@ const createSection = catchAsync(async (req:Request, res:Response) => {
 const getAllSections = catchAsync(async (req:Request, res:Response) => {
 	const quary = req.query;
 
-	const result = await SectionService.getAllSections(quary);
+	const {data,meta} = await SectionService.getAllSections(quary);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
 		message: "Sections retrieved",
-		data: result,
+		     data: data,
+             meta: meta,
 	});
 });
 

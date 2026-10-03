@@ -6,8 +6,8 @@ import { Request, Response } from "express";
 
 
 const initBkashPayment = catchAsync(async (req: Request, res: Response) => {
-    const userId = req.user?.userId
-    const payload = req.body;
+	const userId = req.user?.userId
+	const payload = req.body;
 	const result = await PaymentService.initBkashPayment(userId as string, payload);
 	sendResponse(res, {
 		success: true,
@@ -30,18 +30,19 @@ const bkashCallback = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getAllPayments = catchAsync(async (req: Request, res: Response) => {
-	const {data,meta} = await PaymentService.getAllPayments(req.query);
+	const { data, meta } = await PaymentService.getAllPayments(req.query);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
 		message: "Payments retrieved",
-		data: { data, meta },
+		data: data,
+		meta: meta,
 	});
 });
 
 const getMyFees = catchAsync(async (req: Request, res: Response) => {
-       const userId = req.user?.userId
-    
+	const userId = req.user?.userId
+
 	const result = await PaymentService.getMyFees(userId as string);
 	sendResponse(res, {
 		success: true,
