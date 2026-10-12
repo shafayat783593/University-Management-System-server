@@ -20,6 +20,7 @@ export interface IDashboardSummary {
 	enrollment: {
 		totalEnrolledThisSemester: number;
 	};
+	pendingAdmissionApplications: number;
 	finance: {
 		totalCollected: number;
 		totalPending: number;

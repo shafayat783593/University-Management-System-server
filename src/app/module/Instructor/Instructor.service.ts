@@ -23,6 +23,39 @@ import { IApplyAsInstructorPayload, IReviewInstructorPayload, IVerifyInstructorE
 
 const OTP_TTL_SECONDS = 60 * 60;
 
+
+
+function generateTempPassword(): string {
+	const upperCase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	const lowerCase = "abcdefghijklmnopqrstuvwxyz";
+	const numbers = "0123456789";
+	const specialChars = "!@#$%^&*";
+
+	const allChars = upperCase + lowerCase + numbers + specialChars;
+
+	const passwordChars = [
+		upperCase[crypto.randomInt(upperCase.length)],
+		lowerCase[crypto.randomInt(lowerCase.length)],
+		numbers[crypto.randomInt(numbers.length)],
+		specialChars[crypto.randomInt(specialChars.length)],
+	];
+
+	while (passwordChars.length < 8) {
+		passwordChars.push(allChars[crypto.randomInt(allChars.length)]);
+	}
+
+	// Shuffle the characters randomly
+	for (let i = passwordChars.length - 1; i > 0; i--) {
+		const j = crypto.randomInt(i + 1);
+		[passwordChars[i], passwordChars[j]] = [
+			passwordChars[j],
+			passwordChars[i],
+		];
+	}
+
+	return passwordChars.join("");
+}
+
 const uploadToCloudinary = (
 	file: Express.Multer.File,
 ): Promise<UploadApiResponse> => {
@@ -215,39 +248,41 @@ const reviewInstructorApplication = async (
 		payload.verificationStatus === InstructorApplicationStatus.APPROVED;
 
 	if (isApproved) {
-		const tempPassword = crypto.randomBytes(6).toString("hex");
-		const hashedPassword = await bcrypt.hash(
-			tempPassword,
-			Number(config.bcrypt_salt_rounds),
-		);
+	const tempPassword = generateTempPassword();
 
-		await prisma.user.update({
-			where: {
-				id: updatedProfile.userId,
-			},
-			data: {
-				password: hashedPassword,
-				needPasswordChange: true,
-			},
-		});
+	const hashedPassword = await bcrypt.hash(
+		tempPassword,
+		Number(config.bcrypt_salt_rounds),
+	);
 
-				const templatePath = path.join(
-			process.cwd(),
-			"src/app/templates/instructor-approved.ejs",
-		);
-		const html = await ejs.renderFile(templatePath, {
-			name: updatedProfile.user.name,
-			email: updatedProfile.user.email,
-			tempPassword,
-		});
- 
-		await transporter.sendMail({
-			from: config.email_sender,
-			to: updatedProfile.user.email,
-			subject: "Your instructor application has been approved",
-			html,
-		});
-	} else {
+	await prisma.user.update({
+		where: {
+			id: updatedProfile.userId,
+		},
+		data: {
+			password: hashedPassword,
+			needPasswordChange: true,
+		},
+	});
+
+	const templatePath = path.join(
+		process.cwd(),
+		"src/app/templates/instructor-approved.ejs",
+	);
+
+	const html = await ejs.renderFile(templatePath, {
+		name: updatedProfile.user.name,
+		email: updatedProfile.user.email,
+		tempPassword,
+	});
+
+	await transporter.sendMail({
+		from: config.email_sender,
+		to: updatedProfile.user.email,
+		subject: "Your instructor application has been approved",
+		html,
+	});
+} else {
 		const templatePath = path.join(
 			process.cwd(),
 			"src/app/templates/instructor-rejected.ejs",

@@ -1,12 +1,14 @@
 import {
+	ApplicationStatus,
 	EnrollmentStatus,
-	FeeStatus,
 	InstructorApplicationStatus,
-	PaymentStatus,
+	InvoiceStatus,
 	SemesterStatus,
+	TransactionStatus,
 } from "../../../generated/prisma/enums.js";
+import { toMinor } from "../../lib/billing.js";
 import { prisma } from "../../lib/prisma.js";
-import { IDashboardSummary } from "./dashboard.interface.js";
+import type { IDashboardSummary } from "./dashboard.interface.js";
 
 const getDashboardSummary = async (): Promise<IDashboardSummary> => {
 	const [
@@ -21,8 +23,9 @@ const getDashboardSummary = async (): Promise<IDashboardSummary> => {
 		rejectedApplicationCount,
 		activeSemester,
 		collectedAgg,
-		pendingFeeAgg,
+		openInvoices,
 		failedOrCancelledAgg,
+		pendingAdmissionApplications,
 	] = await Promise.all([
 		prisma.department.count(),
 		prisma.course.count(),
@@ -46,19 +49,26 @@ const getDashboardSummary = async (): Promise<IDashboardSummary> => {
 			select: { id: true, name: true, status: true },
 			orderBy: { createdAt: "desc" },
 		}),
-		prisma.payment.aggregate({
-			where: { status: PaymentStatus.PAID },
+		prisma.paymentTransaction.aggregate({
+			where: { status: { in: [TransactionStatus.SUCCESS, TransactionStatus.REFUNDED] } },
+			_sum: { amount: true, refundedAmount: true },
+		}),
+		prisma.feeInvoice.findMany({
+			where: { status: { in: [InvoiceStatus.UNPAID, InvoiceStatus.PARTIALLY_PAID] } },
+			select: { payableAmount: true, paidAmount: true },
+		}),
+		prisma.paymentTransaction.aggregate({
+			where: { status: { in: [TransactionStatus.FAILED, TransactionStatus.CANCELLED] } },
 			_sum: { amount: true },
 		}),
-		prisma.fee.aggregate({
-			where: { status: FeeStatus.PENDING },
-			_sum: { amount: true },
-		}),
-		prisma.payment.aggregate({
-			where: { status: { in: [PaymentStatus.FAILED, PaymentStatus.CANCELLED] } },
-			_sum: { amount: true },
-		}),
+		prisma.admissionApplication.count({ where: { status: ApplicationStatus.SUBMITTED } }),
 	]);
+
+	const collectedMinor = toMinor(collectedAgg._sum.amount ?? 0) - toMinor(collectedAgg._sum.refundedAmount ?? 0);
+	const outstandingMinor = openInvoices.reduce(
+		(a, i) => a + Math.max(toMinor(i.payableAmount) - toMinor(i.paidAmount), 0),
+		0,
+	);
 
 	const totalEnrolledThisSemester = activeSemester
 		? await prisma.enrollment.count({
@@ -86,10 +96,11 @@ const getDashboardSummary = async (): Promise<IDashboardSummary> => {
 		activeSemester: activeSemester ?? null,
 		enrollment: { totalEnrolledThisSemester },
 		finance: {
-			totalCollected: collectedAgg._sum.amount ?? 0,
-			totalPending: pendingFeeAgg._sum.amount ?? 0,
-			totalFailedOrCancelled: failedOrCancelledAgg._sum.amount ?? 0,
+			totalCollected: collectedMinor / 100,
+			totalPending: outstandingMinor / 100,
+			totalFailedOrCancelled: Number(failedOrCancelledAgg._sum.amount?.toString() ?? 0),
 		},
+		pendingAdmissionApplications,
 	};
 };
 

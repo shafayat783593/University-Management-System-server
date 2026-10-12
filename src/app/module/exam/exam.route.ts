@@ -17,6 +17,12 @@ router.post(
 	validateRequest(ExamValidation.createExamZodSchema),
 	ExamController.createExam,
 );
+router.post(
+	"/bulk",
+	auth(Role.INSTRUCTOR),
+	validateRequest(ExamValidation.bulkCreateExamsZodSchema),
+	ExamController.createBulkExams,
+);
 router.get(
 	"/sections/:sectionId",
 	auth(Role.STUDENT, Role.INSTRUCTOR, Role.ADMIN),

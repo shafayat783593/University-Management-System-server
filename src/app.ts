@@ -30,6 +30,10 @@ import { AttendanceRoutes } from "./app/module/attendance/attendance.route.js";
 import { FeeRoutes } from "./app/module/Fee/free.route.js";
 import { InstructorRoutes } from "./app/module/Instructor/Instructor.route.js";
 import { AnnouncementRoutes } from "./app/module/announcement/announcement.route.js";
+import { PublicRoutes } from "./app/module/public/public.route.js";
+import { AdmissionRoutes } from "./app/module/admission/admission.route.js";
+import { RoutineRoutes } from "./app/module/routine/routine.route.js";
+import { DashboardRoutes } from "./app/module/dashboard/dashboard.route.js";
 
 const app: Application = express();
 
@@ -83,7 +87,10 @@ app.use("/api/v1/fees", FeeRoutes);
 app.use("/api/v1/payments", PaymentRoutes);
 app.use("/api/v1/transcript", TranscriptRoutes);
 app.use("/api/v1/announcements", AnnouncementRoutes);
-
+app.use("/api/v1/public", PublicRoutes);
+app.use("/api/v1/admission-applications", AdmissionRoutes);
+app.use("/api/v1/routines", RoutineRoutes);
+app.use("/api/v1/dashboard", DashboardRoutes);
 
 app.use(notFound);
 app.use(globalErrorHandler);

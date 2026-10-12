@@ -31,7 +31,7 @@ router.patch(
 );
 router.get(
 	"/",
-	auth(Role.ADMIN),
+	auth(Role.ADMIN ,Role.INSTRUCTOR),
 	InstructorController.getAllInstructorApplications,
 );
 

@@ -1,0 +1,75 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Exam scheduled</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
+		<tr>
+			<td align="center">
+				<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(15, 23, 42, 0.08);">
+
+					<tr>
+						<td style="background:linear-gradient(135deg, #F59E0B 0%, #EA580C 60%, #C2410C 100%); padding:36px 40px;">
+							<span style="display:inline-block; background-color:rgba(255,255,255,0.2); color:#ffffff; font-size:12px; font-weight:600; letter-spacing:1px; padding:6px 14px; border-radius:999px; text-transform:uppercase;">Exam Scheduled</span>
+							<h1 style="margin:18px 0 0; color:#ffffff; font-size:22px; font-weight:700;"><%= examTitle %></h1>
+						</td>
+					</tr>
+
+					<tr>
+						<td style="padding:40px;">
+							<p style="margin:0 0 24px; color:#475569; font-size:15px; line-height:1.6;">
+								Hi <b><%= studentName %></b>, a new exam has been scheduled for one of your enrolled courses.
+							</p>
+
+							<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FFF7ED; border:1px solid #FED7AA; border-radius:12px;">
+								<tr>
+									<td style="padding:20px 24px;">
+										<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+											<tr>
+												<td style="padding:6px 0; color:#9A3412; font-size:13px; font-weight:600; width:110px;">Course</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= courseCode %> — <%= courseTitle %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#9A3412; font-size:13px; font-weight:600;">Exam Type</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= examType %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#9A3412; font-size:13px; font-weight:600;">Total Marks</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= totalMarks %></td>
+											</tr>
+											<% if (examDate) { %>
+											<tr>
+												<td style="padding:6px 0; color:#9A3412; font-size:13px; font-weight:600;">Date</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px; font-weight:700;"><%= examDate %></td>
+											</tr>
+											<% } %>
+										</table>
+									</td>
+								</tr>
+							</table>
+
+							<p style="margin:24px 0 0; color:#94a3b8; font-size:13px; line-height:1.6;">
+								Check the course page for updates as the exam approaches.
+							</p>
+						</td>
+					</tr>
+
+					<tr>
+						<td style="padding:24px 40px; background-color:#f8fafc; border-top:1px solid #e2e8f0;">
+							<p style="margin:0; color:#94a3b8; font-size:12px; text-align:center;">
+								&copy; University Management System. This is an automated message — please don't reply.
+							</p>
+						</td>
+					</tr>
+
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>

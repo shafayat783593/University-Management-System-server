@@ -38,13 +38,45 @@ model StudentProfile {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  enrollments        Enrollment[]
-  attendanceRecords  AttendanceRecord[]
-  results            Result[]
-  fees               Fee[]
+  enrollments           Enrollment[]
+  attendanceRecords     AttendanceRecord[]
+  results               Result[]
+  fees                  Fee[]
+  admissionApplication  AdmissionApplication?
 
   @@index([departmentId])
   @@map("student_profiles")
+}
+
+model AdmissionApplication {
+  id                  String   @id @default(uuid())
+  studentId           String   @unique
+  student             StudentProfile @relation(fields: [studentId], references: [id])
+  previousInstitution String
+  sscBoard            String?
+  sscYear             Int?
+  sscGpa              Float?
+  hscBoard            String?
+  hscYear             Int?
+  hscGpa              Float?
+  guardianOccupation  String?
+  presentAddress      String?
+  permanentAddress    String?
+  // Review pipeline: PENDING → APPROVED / REJECTED (admin).
+  status          AdmissionStatus @default(PENDING)
+  reviewNote      String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  // Optional admission test result (admin records it).
+  testDate        DateTime?
+  testScore       Float?
+  // Application-fee snapshot + student-paid TrxID (manual bKash verify).
+  applicationFeeAmount Float?
+  applicationFeeTrxId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admission_applications")
 }
 
 model InstructorProfile {

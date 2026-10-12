@@ -2,26 +2,115 @@ model Fee {
   id          String    @id @default(uuid())
   studentId   String
   student     StudentProfile @relation(fields: [studentId], references: [id])
-  semesterId  String
-  semester    Semester  @relation(fields: [semesterId], references: [id])
-  amount      Float
+  semesterId  String?        // null for an ADMISSION fee — it isn't tied to any one semester
+  semester    Semester?      @relation(fields: [semesterId], references: [id])
+  type        FeeType   @default(TUITION)
+  // Final payable = subtotal - discountAmount + adjustmentAmount.
+  // `amount` is the snapshot — never recalculated after issue, except
+  // through the authorized adjustment endpoint (which rewrites it once).
+  amount           Float
+  subtotal         Float     @default(0)
+  discountAmount   Float     @default(0)
+  adjustmentAmount Float     @default(0)
   status      FeeStatus @default(PENDING)
   dueDate     DateTime?
+  // Human-readable invoice number, set for every newly issued invoice.
+  // Nullable so pre-existing rows stay valid; all new rows get one.
+  invoiceNo   String?   @unique
+  notes       String?
+  cancelledAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  installments Installment[] // every Fee has >= 1 (ADMISSION and single-payment TUITION get exactly one)
+  items        InvoiceItem[]  // priced snapshot of what the invoice charges for
+
+  // Only meaningful for TUITION rows — Postgres doesn't treat two NULL
+  // semesterIds as equal, so this constraint can't stop duplicate
+  // ADMISSION fees by itself; that's enforced in admission.service.ts
+  // with a check before create instead.
+  @@unique([studentId, semesterId])
+  @@index([studentId])
+  @@index([semesterId])
+  @@index([type])
+  @@index([status])
+  @@map("fees")
+}
+
+// One priced line of an invoice — the snapshot that stays frozen even
+// when fee policies change later.
+model InvoiceItem {
+  id     String          @id @default(uuid())
+  feeId  String
+  fee    Fee             @relation(fields: [feeId], references: [id], onDelete: Cascade)
+  label  String          // e.g. "Tuition (12 credits × ৳4,500)"
+  kind   InvoiceItemKind @default(OTHER)
+  amount Float
+
+  @@index([feeId])
+  @@map("invoice_items")
+}
+
+// Admin-configured billing policy for one semester. One active policy
+// per semester (semesterId is unique) — invoices snapshot its values,
+// so later policy edits never rewrite already-issued invoices.
+model FeePolicy {
+  id               String    @id @default(uuid())
+  semesterId       String    @unique
+  semester         Semester  @relation(fields: [semesterId], references: [id])
+  perCreditRate    Float     @default(0)
+  registrationFee  Float     @default(0)
+  labFee           Float     @default(0)
+  examFee          Float     @default(0)
+  libraryFee       Float     @default(0)
+  otherFee         Float     @default(0)
+  otherLabel       String?
+  installmentCount Int       @default(1)
+  firstDueDate     DateTime?
+  graceDays        Int       @default(0)
+  lateFeeAmount    Float     @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("fee_policies")
+}
+
+model Installment {
+  id        String    @id @default(uuid())
+  feeId     String
+  fee       Fee       @relation(fields: [feeId], references: [id], onDelete: Cascade)
+  number    Int       // 1-based position: "Installment 2 of 4"
+  amount    Float
+  dueDate   DateTime
+  status    FeeStatus @default(PENDING) // overdue = PENDING && dueDate < now (derived, no stored status)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
   payment Payment?
 
-  @@unique([studentId, semesterId])
-  
-  @@index([studentId])
-  @@map("fees")
+  @@unique([feeId, number])
+  @@index([feeId])
+  @@index([status, dueDate])
+  @@map("installments")
+}
+
+model SystemSetting {
+  id                 String   @id @default(uuid())
+  // One-time admission fee invoiced on application APPROVAL (null = not configured).
+  admissionFeeAmount Float?
+  // Pay at once (1) or in monthly installments.
+  admissionInstallmentCount Int @default(1)
+  // Form-submission fee, verified manually via the student's bKash TrxID.
+  applicationFeeAmount Float?
+  updatedAt          DateTime @updatedAt
+
+  @@map("system_settings")
 }
 
 model Payment {
   id              String        @id @default(uuid())
-  feeId           String        @unique
-  fee             Fee           @relation(fields: [feeId], references: [id])
+  installmentId   String        @unique
+  installment     Installment   @relation(fields: [installmentId], references: [id])
   paymentId       String        @unique // bKash paymentID — set at init time, the durable lookup key for the callback
   trxId           String?       @unique // bKash trxID — only set after a successful execute
   amount          Float
@@ -36,6 +125,7 @@ model Payment {
   updatedAt       DateTime      @updatedAt
 
   @@map("payments")
+  @@index([status])
 }
 
 model AuditLog {
@@ -52,3 +142,4 @@ model AuditLog {
   @@index([targetType, targetId])
   @@map("audit_logs")
 }
+

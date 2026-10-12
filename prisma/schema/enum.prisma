@@ -43,16 +43,49 @@ enum ResultStatus {
   PUBLISHED
 }
 
+enum FeeType {
+  ADMISSION
+  TUITION
+}
+
 enum FeeStatus {
   PENDING
+  PARTIALLY_PAID
   PAID
   FAILED
+  CANCELLED
+}
+
+enum InvoiceItemKind {
+  TUITION
+  REGISTRATION
+  LAB
+  EXAM
+  LIBRARY
+  ADMISSION
+  OTHER
 }
 
 enum InstructorApplicationStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum AdmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DayOfWeek {
+  SUNDAY
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
 }
 
 enum PaymentStatus {

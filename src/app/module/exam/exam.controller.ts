@@ -26,7 +26,18 @@ const getSectionExams = catchAsync(async (req:Request, res:Response) => {
 	});
 });
 
+const createBulkExams = catchAsync(async (req:Request, res:Response) => {
+	const result = await ExamService.createBulkExams(req.user?.userId as string, req.body.exams);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.CREATED,
+		message: "Exams created",
+		data: result,
+	});
+});
+
 export const ExamController = {
 	createExam,
+	createBulkExams,
 	getSectionExams,
 };

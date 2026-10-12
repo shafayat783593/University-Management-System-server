@@ -56,9 +56,22 @@ const withdrawEnrollment = catchAsync(async (req, res) => {
 });
 
 
+const getSectionEnrollments = catchAsync(async (req, res) => {
+	// @ts-expect-error req.user is attached by the auth() middleware
+	const result = await EnrollmentService.getSectionEnrollments(req.user.userId, req.params.sectionId as string, req.user.role);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Section enrollments retrieved",
+		data: result,
+	});
+});
+
+
 export const EnrollmentController = {
 	createEnrollment,
 	dropEnrollment,
 	getMyEnrollments,
+	getSectionEnrollments,
 	withdrawEnrollment
 };

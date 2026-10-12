@@ -12,6 +12,11 @@ router.post(
 	EnrollmentController.createEnrollment,
 );
 router.get("/my", auth(Role.STUDENT), EnrollmentController.getMyEnrollments);
+router.get(
+	"/sections/:sectionId",
+	auth(Role.INSTRUCTOR, Role.ADMIN),
+	EnrollmentController.getSectionEnrollments,
+);
 router.delete(
 	"/:sectionId",
 	auth(Role.STUDENT),
