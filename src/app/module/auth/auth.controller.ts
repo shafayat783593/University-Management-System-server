@@ -174,7 +174,7 @@ const downloadIdCard = catchAsync(async (req: Request, res: Response) => {
 	res.setHeader("Content-Type", "application/pdf");
 	res.setHeader(
 		"Content-Disposition",
-		`inline; filename="id-card-${student.studentIdCode}.pdf"`,
+		`inline; filename="id-card-${student.studentIdCode ?? "card"}.pdf"`,
 	);
 	res.send(buffer);
 });

@@ -1,80 +1,225 @@
-// Unit tests for pure billing math (src/app/lib/billing.ts).
-// Run: npx vitest run src/app/lib/billing.test.ts
 import { describe, expect, it } from "vitest";
 import {
-	buildPolicyLines,
-	calcOutstanding,
-	calcPayable,
-	linesTotal,
-	makeInvoiceNo,
-	splitInstallments,
+	allocatePayment,
+	applyDelta,
+	BillingError,
+	buildInstallments,
+	buildInvoiceItems,
+	computeLateFee,
+	computePayable,
+	computeWaiverAdjustments,
+	deriveInvoiceStatus,
+	effectiveInstallmentStatus,
+	fromMinor,
+	makeInvoiceNumber,
+	outstandingMinor,
+	pickPolicy,
+	reverseAllocations,
+	toMinor,
+	type IPolicyLike,
 } from "./billing.js";
 
-describe("splitInstallments", () => {
-	it("splits evenly (67000 / 4 = 16750 x 4)", () => {
-		expect(splitInstallments(67000, 4)).toEqual([16750, 16750, 16750, 16750]);
+const NOW = new Date("2027-01-01T00:00:00Z");
+const FUTURE = new Date("2027-02-01T00:00:00Z");
+
+const policy = (o: Partial<IPolicyLike>): IPolicyLike => ({
+	invoiceType: "SEMESTER",
+	itemType: "TUITION",
+	calcMethod: "FLAT",
+	amountMinor: 0,
+	isRefundable: false,
+	departmentId: null,
+	semesterId: null,
+	effectiveFrom: new Date("2026-01-01"),
+	effectiveTo: null,
+	isActive: true,
+	...o,
+});
+
+const ctx = { departmentId: "cse", semesterId: "s1", at: NOW };
+const sum = (xs: { amountMinor: number }[]) => xs.reduce((a, b) => a + b.amountMinor, 0);
+const plan = (o = {}) => ({
+	count: 4,
+	advanceType: "NONE" as const,
+	advanceMinorOrPercent: null,
+	customPercents: null,
+	intervalMonths: 1,
+	firstDue: FUTURE,
+	...o,
+});
+
+describe("money helpers", () => {
+	it("round-trips minor units", () => {
+		expect(toMinor("16750.00")).toBe(1675000);
+		expect(toMinor(0.1 + 0.2)).toBe(30);
+		expect(fromMinor(1675000)).toBe("16750.00");
 	});
-	it("last installment absorbs rounding (100 / 3)", () => {
-		const parts = splitInstallments(100, 3);
-		expect(parts).toEqual([33.33, 33.33, 33.34]);
-		expect(parts.reduce((a, b) => a + b, 0)).toBeCloseTo(100, 2);
+});
+
+describe("fee calculation", () => {
+	it("tuition = credits x per-credit rate; spec example totals 67,000", () => {
+		const items = buildInvoiceItems(
+			[
+				policy({ itemType: "TUITION", calcMethod: "PER_CREDIT", amountMinor: 500000 }), // 5,000/credit
+				policy({ itemType: "REGISTRATION", amountMinor: 500000 }),
+				policy({ itemType: "LABORATORY", amountMinor: 200000 }),
+			],
+			{ invoiceType: "SEMESTER", ctx, credits: 12 },
+		);
+		expect(items.find((i) => i.itemType === "TUITION")!.amountMinor).toBe(6000000);
+		expect(sum(items)).toBe(6700000);
 	});
-	it("single installment returns the total", () => {
-		expect(splitInstallments(5000, 1)).toEqual([5000]);
+
+	it("skips per-credit items when credits = 0", () => {
+		const items = buildInvoiceItems(
+			[policy({ calcMethod: "PER_CREDIT", amountMinor: 500000 })],
+			{ invoiceType: "SEMESTER", ctx, credits: 0 },
+		);
+		expect(items).toHaveLength(0);
 	});
-	it("sum always equals the total", () => {
-		for (const [total, count] of [[9999, 7], [12345.67, 5], [1, 12]] as const) {
-			const sum = splitInstallments(total, count).reduce((a, b) => a + b, 0);
-			expect(sum).toBeCloseTo(total, 2);
+
+	it("supplementary invoices bill tuition only", () => {
+		const items = buildInvoiceItems(
+			[
+				policy({ itemType: "TUITION", calcMethod: "PER_CREDIT", amountMinor: 500000 }),
+				policy({ itemType: "REGISTRATION", amountMinor: 500000 }),
+			],
+			{ invoiceType: "SEMESTER", ctx, credits: 3, onlyTuition: true },
+		);
+		expect(items.map((i) => i.itemType)).toEqual(["TUITION"]);
+		expect(sum(items)).toBe(1500000);
+	});
+
+	it("most specific policy wins; expired and inactive ones are ignored", () => {
+		const global = policy({ id: "g", amountMinor: 100 });
+		const dept = policy({ id: "d", departmentId: "cse", amountMinor: 200 });
+		const deptSem = policy({ id: "ds", departmentId: "cse", semesterId: "s1", amountMinor: 300 });
+		const expired = policy({ id: "x", departmentId: "cse", semesterId: "s1", amountMinor: 999, effectiveTo: new Date("2026-06-01") });
+		const inactive = policy({ id: "i", departmentId: "cse", semesterId: "s1", amountMinor: 888, isActive: false });
+		const other = policy({ id: "o", departmentId: "eee", amountMinor: 777 });
+		expect(pickPolicy([global, dept, deptSem, expired, inactive, other], "TUITION", ctx)!.id).toBe("ds");
+		expect(pickPolicy([global, other], "TUITION", ctx)!.id).toBe("g");
+	});
+
+	it("old invoices don't change when rates change (snapshot is the item itself)", () => {
+		const before = buildInvoiceItems([policy({ calcMethod: "PER_CREDIT", amountMinor: 500000 })], { invoiceType: "SEMESTER", ctx, credits: 10 });
+		const after = buildInvoiceItems([policy({ calcMethod: "PER_CREDIT", amountMinor: 600000 })], { invoiceType: "SEMESTER", ctx, credits: 10 });
+		expect(sum(before)).toBe(5000000);
+		expect(sum(after)).toBe(6000000);
+	});
+});
+
+describe("waivers", () => {
+	it("applies percent then fixed, capped at tuition", () => {
+		const adj = computeWaiverAdjustments(1000000, [
+			{ type: "SCHOLARSHIP", name: "Merit", percent: 50, fixedMinor: null },
+			{ type: "WAIVER", name: "Hardship", percent: null, fixedMinor: 700000 },
+		]);
+		expect(adj.map((a) => a.amountMinor)).toEqual([-500000, -500000]); // second capped
+	});
+	it("never goes below zero payable", () => {
+		expect(() => computePayable(100, 200, 0)).toThrow(BillingError);
+		expect(computePayable(6700000, 500000, 0)).toBe(6200000);
+	});
+});
+
+describe("installments", () => {
+	it("4 equal installments of the spec example = 16,750 each", () => {
+		const s = buildInstallments(6700000, plan(), NOW);
+		expect(s.map((i) => i.amountMinor)).toEqual([1675000, 1675000, 1675000, 1675000]);
+	});
+
+	it("sum always equals total, even with awkward remainders", () => {
+		for (const total of [1, 99, 100001, 6666667, 1234567]) {
+			for (const count of [1, 2, 3, 5, 7, 12]) {
+				const s = buildInstallments(total, plan({ count }), NOW);
+				expect(sum(s)).toBe(total);
+			}
+		}
+	});
+
+	it("fixed advance becomes installment #1, rest split equally", () => {
+		const s = buildInstallments(6700000, plan({ count: 4, advanceType: "FIXED", advanceMinorOrPercent: 2000000 }), NOW);
+		expect(s[0].amountMinor).toBe(2000000);
+		expect(sum(s)).toBe(6700000);
+		expect(s.map((i) => i.amountMinor)).toEqual([2000000, 1566666, 1566666, 1566668]); // last absorbs the remainder
+	});
+
+	it("percent advance and custom percents both sum exactly", () => {
+		expect(sum(buildInstallments(1000001, plan({ advanceType: "PERCENT", advanceMinorOrPercent: 30 }), NOW))).toBe(1000001);
+		const custom = buildInstallments(1000001, plan({ customPercents: [40, 20, 20, 20] }), NOW);
+		expect(sum(custom)).toBe(1000001);
+		expect(custom[0].amountMinor).toBe(400000);
+	});
+
+	it("rejects bad plans", () => {
+		expect(() => buildInstallments(100, plan({ count: 0 }), NOW)).toThrow(BillingError);
+		expect(() => buildInstallments(100, plan({ customPercents: [50, 50] }), NOW)).toThrow(BillingError);
+		expect(() => buildInstallments(100, plan({ customPercents: [50, 20, 20, 20] }), NOW)).toThrow(BillingError);
+	});
+
+	it("monthly due dates; late joiners get past dues pushed forward, never backwards", () => {
+		const s = buildInstallments(400, plan({ firstDue: new Date("2026-12-01") }), NOW);
+		expect(s[0].dueDate.getTime()).toBeGreaterThan(NOW.getTime());
+		for (let i = 1; i < s.length; i++) {
+			expect(s[i].dueDate.getTime()).toBeGreaterThanOrEqual(s[i - 1].dueDate.getTime());
 		}
 	});
 });
 
-describe("calcPayable / calcOutstanding", () => {
-	it("payable = subtotal - discount + adjustment", () => {
-		expect(calcPayable(67000, 5000, 0)).toBe(62000);
-		expect(calcPayable(67000, 0, 1500)).toBe(68500);
+describe("allocation, refunds and deltas", () => {
+	const sched = [
+		{ number: 1, amountMinor: 1000, paidMinor: 0 },
+		{ number: 2, amountMinor: 1000, paidMinor: 0 },
+		{ number: 3, amountMinor: 1000, paidMinor: 0 },
+	];
+
+	it("partial payment fills the oldest installment first", () => {
+		expect(allocatePayment(sched, 400)).toEqual({ allocations: [{ number: 1, amountMinor: 400 }], excessMinor: 0 });
 	});
-	it("outstanding = payable - paid (never negative)", () => {
-		expect(calcOutstanding(62000, 15500)).toBe(46500);
-		expect(calcOutstanding(62000, 62000)).toBe(0);
-		expect(calcOutstanding(62000, 99999)).toBe(0); // overpay can't go negative
+	it("overflow spills to the next installment; overpayment shows up as excess", () => {
+		expect(allocatePayment(sched, 1500).allocations).toEqual([{ number: 1, amountMinor: 1000 }, { number: 2, amountMinor: 500 }]);
+		expect(allocatePayment(sched, 5000).excessMinor).toBe(2000);
 	});
-	it("pending gateway money is simply not passed in as paid", () => {
-		expect(calcOutstanding(20000, 0)).toBe(20000);
+	it("refund reverses newest allocation first", () => {
+		expect(reverseAllocations([{ number: 1, allocatedMinor: 1000 }, { number: 2, allocatedMinor: 500 }], 700)).toEqual([
+			{ number: 2, amountMinor: 500 },
+			{ number: 1, amountMinor: 200 },
+		]);
+		expect(() => reverseAllocations([{ number: 1, allocatedMinor: 100 }], 200)).toThrow(BillingError);
+	});
+	it("negative delta trims unpaid tail and keeps total consistent; refuses to cut into paid money", () => {
+		const out = applyDelta([{ number: 1, amountMinor: 1000, paidMinor: 1000 }, { number: 2, amountMinor: 1000, paidMinor: 0 }], -600);
+		expect(out.map((i) => i.amountMinor)).toEqual([1000, 400]);
+		expect(() => applyDelta([{ number: 1, amountMinor: 1000, paidMinor: 1000 }], -1)).toThrow(BillingError);
+	});
+	it("positive delta goes to the last installment", () => {
+		expect(applyDelta(sched, 250)[2].amountMinor).toBe(1250);
 	});
 });
 
-describe("buildPolicyLines", () => {
-	const policy = {
-		perCreditRate: 4500,
-		registrationFee: 5000,
-		labFee: 2000,
-		examFee: 0,
-		libraryFee: 500,
-		otherFee: 0,
-		otherLabel: null,
-	};
-	it("tuition = credits x rate + fixed lines", () => {
-		const lines = buildPolicyLines(policy, 12);
-		expect(linesTotal(lines)).toBe(12 * 4500 + 5000 + 2000 + 500);
-		expect(lines[0].kind).toBe("TUITION");
+describe("statuses and late fees", () => {
+	it("overdue is derived from due date + grace + balance; pending gateway txns never count", () => {
+		const i = { amountMinor: 1000, paidMinor: 0, dueDate: new Date("2026-12-25") };
+		expect(effectiveInstallmentStatus(i, NOW, 0)).toBe("OVERDUE");
+		expect(effectiveInstallmentStatus(i, NOW, 30)).toBe("PENDING");
+		expect(effectiveInstallmentStatus({ ...i, paidMinor: 400 }, NOW, 0)).toBe("OVERDUE");
+		expect(effectiveInstallmentStatus({ ...i, paidMinor: 1000 }, NOW, 0)).toBe("PAID");
 	});
-	it("zero charges are skipped", () => {
-		const lines = buildPolicyLines(policy, 0);
-		expect(lines.some((l) => l.kind === "TUITION")).toBe(false);
-		expect(lines.some((l) => l.kind === "EXAM")).toBe(false);
+	it("invoice status transitions", () => {
+		expect(deriveInvoiceStatus(1000, 0, false)).toBe("UNPAID");
+		expect(deriveInvoiceStatus(1000, 1, false)).toBe("PARTIALLY_PAID");
+		expect(deriveInvoiceStatus(1000, 1000, false)).toBe("PAID");
+		expect(deriveInvoiceStatus(1000, 1000, true)).toBe("CANCELLED");
+		expect(outstandingMinor(1000, 1200)).toBe(0);
 	});
-	it("a student with no credits and no fixed fees gets no lines", () => {
-		expect(buildPolicyLines({ ...policy, registrationFee: 0, labFee: 0, libraryFee: 0 }, 0)).toEqual([]);
+	it("late fee: fixed vs percent of remaining", () => {
+		expect(computeLateFee(1000, "FIXED", 50)).toBe(50);
+		expect(computeLateFee(1000, "PERCENT", 5)).toBe(50);
+		expect(computeLateFee(0, "FIXED", 50)).toBe(0);
+		expect(computeLateFee(1000, "NONE", 50)).toBe(0);
 	});
-});
-
-describe("makeInvoiceNo", () => {
-	it("is unique and prefixed", () => {
-		const a = makeInvoiceNo();
-		const b = makeInvoiceNo();
-		expect(a).not.toBe(b);
-		expect(a.startsWith("INV-")).toBe(true);
+	it("invoice numbers look right", () => {
+		expect(makeInvoiceNumber(new Date("2027-03-05"), () => 0)).toBe("INV-202703-AAAAAA");
 	});
 });

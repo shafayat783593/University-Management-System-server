@@ -84,13 +84,6 @@ const registerStudent = async (payload: IRegisterStudentPayload) => {
 		);
 	}
 
-	const existingStudentId = await prisma.studentProfile.findUnique({
-		where: { studentIdCode: payload.studentIdCode },
-	});
-	if (existingStudentId) {
-		throw new AppError(httpStatus.CONFLICT, "Student ID already in use");
-	}
-
 	const hashedPassword = await bcrypt.hash(
 		payload.password,
 		Number(config.bcrypt_salt_rounds),
@@ -110,7 +103,6 @@ const registerStudent = async (payload: IRegisterStudentPayload) => {
 			email,
 			password: hashedPassword,
 			departmentId: payload.departmentId,
-			studentIdCode: payload.studentIdCode,
 			phone: payload.phone,
 		}),
 		{ expiration: { type: "EX", value: OTP_TTL_SECONDS } },
@@ -167,7 +159,6 @@ const verifyStudentEmail = async (payload: IVerifyEmailPayload) => {
 			emailVerified: true,
 			studentProfile: {
 				create: {
-					studentIdCode: parsed.studentIdCode,
 					departmentId: parsed.departmentId,
 					phone: parsed.phone || null,
 				},
@@ -308,18 +299,10 @@ const completeProfile = async (
 		throw new AppError(httpStatus.CONFLICT, "Profile already completed");
 	}
 
-	const existingStudentId = await prisma.studentProfile.findUnique({
-		where: { studentIdCode: payload.studentIdCode },
-	});
-	if (existingStudentId) {
-		throw new AppError(httpStatus.CONFLICT, "Student ID already in use");
-	}
-
 	return prisma.studentProfile.create({
 		data: {
 			userId: user.userId,
 			departmentId: payload.departmentId,
-			studentIdCode: payload.studentIdCode,
 			phone: payload.phone || null,
 		},
 	});
@@ -499,6 +482,13 @@ const generateIdCard = async (userId: string) => {
 	});
 	if (!student) {
 		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	}
+
+	if (!student.studentIdCode) {
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			"Your Student ID is issued after your admission is confirmed (admission invoice paid)",
+		);
 	}
 
 	const buffer = await pdfGenerator.generateStudentIdCardPdf({

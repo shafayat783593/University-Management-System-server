@@ -1,34 +1,59 @@
 import { z } from "zod";
 
-const registerStudentZodSchema = z.object({
-	name: z.string().min(2, "Name must be at least 2 characters"),
+const bdPhone = z
+	.string()
+	.regex(/^01[3-9]\d{8}$/, "Invalid Bangladeshi phone number (e.g. 017XXXXXXXX)");
+
+// §3: register takes department (+optional phone). studentIdCode must NOT be
+// sent — the server issues a placeholder and the real Student ID is generated
+// at admission confirmation.
+const registerStudentZodSchema = z
+	.object({
+		name: z.string().min(2, "Name must be at least 2 characters"),
+		email: z.string().email("Invalid email"),
+		password: z.string().min(6, "Password must be at least 6 characters"),
+		departmentId: z.string().min(1, "departmentId is required"),
+		phone: bdPhone.optional(),
+	})
+	.strict();
+
+
+const completeProfileZodSchema = z
+	.object({
+		departmentId: z.string().min(1, "departmentId is required"),
+		phone: bdPhone.optional(),
+	})
+	.strict();
+
+const loginZodSchema = z.object({
 	email: z.string().email("Invalid email"),
-	password: z.string().min(6, "Password must be at least 6 characters"),
+	password: z.string().min(1, "Password is required"),
 });
 
+const verifyEmailZodSchema = z.object({
+	email: z.string().email("Invalid email"),
+	otp: z.string().min(1, "OTP is required"),
+});
 
-const completeProfileZodSchema = z.object({
-	departmentId: z.string().min(1, "departmentId is required"),
-	studentIdCode: z.string().min(1, "studentIdCode is required"),
-	phone: z.string().optional(),
+const googleLoginZodSchema = z.object({
+	idToken: z.string().min(1, "idToken is required"),
+});
 
-	previousInstitute: z.string().min(2),
-	group: z.enum(["SCIENCE", "COMMERCE", "ARTS", "BUSINESS_STUDIES"]),
-
-	sscBoard: z.string().min(2),
-	sscRoll: z.string().min(1),
-	sscRegistration: z.string().min(1),
-	sscGPA: z.number().min(0).max(5),
-	sscPassingYear: z.number().int().min(1990).max(new Date().getFullYear()),
-
-	hscBoard: z.string().min(2),
-	hscRoll: z.string().min(1),
-	hscRegistration: z.string().min(1),
-	hscGPA: z.number().min(0).max(5),
-	hscPassingYear: z.number().int().min(1990).max(new Date().getFullYear()),
+// §3: PATCH /auth/student-profile — all fields optional.
+const updateStudentProfileZodSchema = z.object({
+	phone: bdPhone.optional(),
+	address: z.string().max(255).optional(),
+	dateOfBirth: z.string().optional(),
+	guardianName: z.string().max(100).optional(),
+	guardianPhone: bdPhone.optional(),
+	bloodGroup: z.string().optional(),
 });
 
 export const AuthValidation = {
 	registerStudentZodSchema,
 	completeProfileZodSchema,
+	loginZodSchema,
+	verifyEmailZodSchema,
+	googleLoginZodSchema,
+	updateStudentProfileZodSchema,
 };

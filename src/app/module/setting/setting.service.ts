@@ -1,9 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
-import { IUpdateSystemSettingPayload } from "./setting.interface.js";
-
-
-
-
+import type { IUpdateSystemSettingPayload } from "./setting.interface.js";
 
 /**
  * Single-row settings table — no natural unique business key to upsert

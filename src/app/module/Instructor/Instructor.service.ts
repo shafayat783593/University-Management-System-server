@@ -125,6 +125,7 @@ const applyAsInstructor = async (
 	});
 
 	const otp = crypto.randomInt(100000, 1000000).toString();
+	console.log(`Generated OTP for ${email}: ${otp}`); 
 	const otpKey = `instructor-application-otp:${email}`;
 	await redisClient.set(otpKey, otp, {
 		expiration: { type: "EX", value: OTP_TTL_SECONDS },
@@ -249,7 +250,7 @@ const reviewInstructorApplication = async (
 
 	if (isApproved) {
 	const tempPassword = generateTempPassword();
-
+console.log("Generated temporary password:", tempPassword);
 	const hashedPassword = await bcrypt.hash(
 		tempPassword,
 		Number(config.bcrypt_salt_rounds),
@@ -336,6 +337,7 @@ const getAllInstructorApplications = async (query: IQuary) => {
 	}
 
 	// filtering...........
+	
 	if (query.departmentId) {
 		andConditions.push({
 			departmentId: {

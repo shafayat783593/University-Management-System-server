@@ -7,6 +7,8 @@ import {
 import type { AdmissionApplicationWhereInput } from "../../../generated/prisma/models.js";
 import { confirmAdmission, sendAdmissionConfirmedEmail } from "../../lib/admission.js";
 import { AuditLogLite } from "../../lib/audit.js";
+import { getFeeSchedule } from "../../lib/invoiceCore.js";
+import { outstandingMinor, toMinor } from "../../lib/billing.js";
 import { prisma } from "../../lib/prisma.js";
 import { IQuary } from "../../interface/index.js";
 import { AppError } from "../../utils/AppError.js";
@@ -44,7 +46,14 @@ const submitApplication = async (
 	}
 
 	const setting = await prisma.systemSetting.findFirst();
-	if (setting?.applicationFeeRequired) {
+	const configuredFee = setting?.applicationFeeRequired
+		? (await getFeeSchedule(prisma, InvoiceType.APPLICATION, student.departmentId, null)).reduce(
+				(sum, l) => sum + l.amount,
+				0,
+			)
+		: 0;
+	// A fee is only enforced when one is really configured (otherwise students would be stuck).
+	if (setting?.applicationFeeRequired && configuredFee > 0) {
 		const paid = await prisma.feeInvoice.findFirst({
 			where: {
 				studentId: student.id,
@@ -99,7 +108,7 @@ const getMyApplication = async (userId: string) => {
 				type: InvoiceType.ADMISSION,
 				status: { not: InvoiceStatus.CANCELLED },
 			},
-			select: { id: true, invoiceNumber: true, status: true, payableAmount: true, paidAmount: true },
+			select: { id: true, invoiceNumber: true, status: true, payableAmount: true, paidAmount: true, refundedAmount: true },
 		}),
 		prisma.feeInvoice.findFirst({
 			where: {
@@ -107,16 +116,44 @@ const getMyApplication = async (userId: string) => {
 				type: InvoiceType.APPLICATION,
 				status: { not: InvoiceStatus.CANCELLED },
 			},
-			select: { id: true, invoiceNumber: true, status: true, payableAmount: true, paidAmount: true },
+			select: { id: true, invoiceNumber: true, status: true, payableAmount: true, paidAmount: true, refundedAmount: true },
 		}),
 	]);
 
 	const num = (d: { toString(): string } | null | undefined) => (d ? Number(d.toString()) : 0);
+	// outstandingBalance is derived server-side (same helper the invoice
+	// serializer uses) so the client never computes money.
 	const show = (i: typeof admissionInvoice) =>
-		i ? { ...i, payableAmount: num(i.payableAmount), paidAmount: num(i.paidAmount) } : null;
+		i
+			? {
+					...i,
+					payableAmount: num(i.payableAmount),
+					paidAmount: num(i.paidAmount),
+					outstandingBalance:
+						outstandingMinor(toMinor(i.payableAmount), toMinor(i.paidAmount)) / 100,
+				}
+			: null;
+
+	// What the student must pay to apply — shown BEFORE they pay, so it comes from
+	// the active fee policies (or the invoice itself once it exists).
+	const setting = await prisma.systemSetting.findFirst();
+	let feeAmount = 0;
+	if (applicationInvoice) {
+		feeAmount = num(applicationInvoice.payableAmount);
+	} else {
+		const lines = await getFeeSchedule(prisma, InvoiceType.APPLICATION, student.departmentId, null);
+		feeAmount = lines.reduce((sum, l) => sum + l.amount, 0);
+	}
+
+	const required = !!setting?.applicationFeeRequired && !application && feeAmount > 0;
 
 	return {
 		application, // null = not submitted yet
+		applicationFee: {
+			required, // true = must be PAID before the form can be submitted
+			amount: feeAmount, // BDT
+			isPaid: applicationInvoice?.status === InvoiceStatus.PAID,
+		},
 		applicationInvoice: show(applicationInvoice),
 		admissionInvoice: show(admissionInvoice),
 		admissionConfirmed: !!student.admissionConfirmedAt,

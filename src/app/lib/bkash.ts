@@ -1,14 +1,16 @@
 import httpStatus from "http-status";
-import { redisClient } from "./redis.js";
 import config from "../config/index.js";
 import { AppError } from "../utils/AppError.js";
+import { redisClient } from "./redis.js";
 
-const ID_TOKEN_KEY = "bkash:id-token";
-const REFRESH_TOKEN_KEY = "bkash:refresh-token";
+const ID_TOKEN_CACHE_KEY = "bkash:id-token";
+const REFRESH_TOKEN_CACHE_KEY = "bkash:refresh-token";
 
 // bKash id_token is valid ~3600s — refresh a bit early.
 const ID_TOKEN_TTL_SECONDS = 3300;
-
+// bKash refresh_token outlives the id_token by a lot — verify the exact
+// figure against your bKash sandbox/live docs and adjust; this is a
+// conservative placeholder, not a confirmed number.
 const REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 23;
 
 interface IBkashGrantResponse {
@@ -26,32 +28,57 @@ interface IBkashExecutePaymentResponse {
 	trxID: string;
 	paymentID: string;
 	amount: string;
+	currency?: string;
 }
-
 
 interface IBkashRefundResponse {
 	refundTrxID: string;
 	completedTime?: string;
 	amount: string;
 }
- 
 
 const cacheTokens = async (data: IBkashGrantResponse) => {
-	await redisClient.set(ID_TOKEN_KEY, data.id_token, {
+	await redisClient
+		.set(ID_TOKEN_CACHE_KEY, data.id_token, {
 			expiration: { type: "EX", value: ID_TOKEN_TTL_SECONDS },
 		})
 		.catch(() => null);
 
 	if (data.refresh_token) {
 		await redisClient
-			.set(REFRESH_TOKEN_KEY, data.refresh_token, {
+			.set(REFRESH_TOKEN_CACHE_KEY, data.refresh_token, {
 				expiration: { type: "EX", value: REFRESH_TOKEN_TTL_SECONDS },
 			})
 			.catch(() => null);
 	}
 };
 
-// 
+const requestNewGrantToken = async (): Promise<string> => {
+	const response = await fetch(
+		`${config.bkash_base_url}/tokenized/checkout/token/grant`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				username: config.bkash_username,
+				password: config.bkash_password,
+			},
+			body: JSON.stringify({
+				app_key: config.bkash_app_key,
+				app_secret: config.bkash_app_secret,
+			}),
+		},
+	);
+
+	const data = (await response.json()) as IBkashGrantResponse;
+	if (!response.ok || !data.id_token) {
+		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to get bKash grant token");
+	}
+
+	await cacheTokens(data);
+	return data.id_token;
+};
 
 const refreshGrantToken = async (refreshToken: string): Promise<string> => {
 	const response = await fetch(
@@ -82,52 +109,23 @@ const refreshGrantToken = async (refreshToken: string): Promise<string> => {
 };
 
 const getGrantToken = async (): Promise<string> => {
-	const cachedIdToken = await redisClient.get(ID_TOKEN_KEY).catch(() => null);
+	const cachedIdToken = await redisClient.get(ID_TOKEN_CACHE_KEY).catch(() => null);
 	if (cachedIdToken) return cachedIdToken;
 
 	const cachedRefreshToken = await redisClient
-		.get(REFRESH_TOKEN_KEY)
+		.get(REFRESH_TOKEN_CACHE_KEY)
 		.catch(() => null);
 
 	if (cachedRefreshToken) {
 		try {
 			return await refreshGrantToken(cachedRefreshToken);
 		} catch {
-		
+			// refresh_token itself expired or was rejected — fall through
+			// to a full grant below instead of failing the request.
 		}
 	}
 
-
-
-
-	const response = await fetch(
-		`${config.bkash_base_url}/tokenized/checkout/token/grant`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Accept: "application/json",
-				username: config.bkash_username,
-				password: config.bkash_password,
-			},
-			body: JSON.stringify({
-				app_key: config.bkash_app_key,
-				app_secret: config.bkash_app_secret,
-			}),
-		},
-	);
-
-	const data = (await response.json()) as IBkashGrantResponse;
-	if (!response.ok || !data.id_token) {
-		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to get bKash grant token");
-	}
-
-	await cacheTokens(data);
-	return data.id_token;
-
-
-
-
+	return requestNewGrantToken();
 };
 
 const createPayment = async (params: {
@@ -164,11 +162,6 @@ const createPayment = async (params: {
 		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to create bKash payment");
 	}
 
-	const createpaymentresponse = {
-		paymentID: data.paymentID,
-		bkashURL: data.bkashURL,
-	};
-	console.log("createpaymentresponse", createpaymentresponse);
 	return data;
 };
 
@@ -195,12 +188,40 @@ const executePayment = async (
 	if (!response.ok || data.transactionStatus !== "Completed") {
 		throw new AppError(httpStatus.BAD_GATEWAY, "bKash payment execution failed");
 	}
-	console.log("executePayment data", data);
 
 	return data;
 };
 
+/**
+ * Server-to-server status check. Unlike executePayment this does NOT throw
+ * on a non-Completed status — the caller decides what Initiated / Failed
+ * means. Used to recover when our execute call or DB write died halfway.
+ */
+const queryPayment = async (
+	paymentID: string,
+): Promise<IBkashExecutePaymentResponse> => {
+	const token = await getGrantToken();
 
+	const response = await fetch(
+		`${config.bkash_base_url}/tokenized/checkout/payment/status`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				Authorization: token,
+				"X-App-Key": config.bkash_app_key,
+			},
+			body: JSON.stringify({ paymentID }),
+		},
+	);
+
+	const data = (await response.json()) as IBkashExecutePaymentResponse;
+	if (!response.ok || !data.transactionStatus) {
+		throw new AppError(httpStatus.BAD_GATEWAY, "bKash payment status check failed");
+	}
+	return data;
+};
 
 const refundPayment = async (params: {
 	paymentID: string;
@@ -210,7 +231,7 @@ const refundPayment = async (params: {
 	reason: string;
 }): Promise<IBkashRefundResponse> => {
 	const token = await getGrantToken();
- 
+
 	const response = await fetch(
 		`${config.bkash_base_url}/tokenized/checkout/payment/refund`,
 		{
@@ -230,20 +251,19 @@ const refundPayment = async (params: {
 			}),
 		},
 	);
- 
+
 	const data = (await response.json()) as IBkashRefundResponse;
 	if (!response.ok || !data.refundTrxID) {
 		throw new AppError(httpStatus.BAD_GATEWAY, "bKash refund failed");
 	}
- 
+
 	return data;
 };
-
-
 
 export const bkashClient = {
 	getGrantToken,
 	createPayment,
 	executePayment,
-	refundPayment
+	queryPayment,
+	refundPayment,
 };

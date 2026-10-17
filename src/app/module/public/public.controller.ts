@@ -2,8 +2,9 @@ import httpStatus from "http-status";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import { PublicService } from "./public.service.js";
+import { Request, Response } from "express";
 
-const getStats = catchAsync(async (_req, res) => {
+const getStats = catchAsync(async (req:Request, res:Response) => {
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -12,7 +13,7 @@ const getStats = catchAsync(async (_req, res) => {
 	});
 });
 
-const getDepartmentCards = catchAsync(async (_req, res) => {
+const getDepartmentCards = catchAsync(async (req:Request, res:Response) => {
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -21,7 +22,7 @@ const getDepartmentCards = catchAsync(async (_req, res) => {
 	});
 });
 
-const getFaculty = catchAsync(async (req, res) => {
+const getFaculty = catchAsync(async (req:Request, res:Response) => {
 	const limit = req.query.limit ? Number(req.query.limit) : 6;
 	sendResponse(res, {
 		success: true,
@@ -31,7 +32,7 @@ const getFaculty = catchAsync(async (req, res) => {
 	});
 });
 
-const getCurrentCalendar = catchAsync(async (_req, res) => {
+const getCurrentCalendar = catchAsync(async (req:Request, res:Response) => {
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,

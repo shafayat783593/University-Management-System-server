@@ -1,462 +1,754 @@
-import httpStatus from "http-status";
-import { format, isBefore } from "date-fns";
+import { format } from "date-fns";
 import ejs from "ejs";
+import httpStatus from "http-status";
 import path from "path";
-import PDFDocument from "pdfkit";
-import { prisma } from "../../lib/prisma.js";
-import { AppError } from "../../utils/AppError.js";
-import { FeeStatus, FeeType, PaymentStatus } from "../../../generated/prisma/enums.js";
+import { Prisma } from "../../../generated/prisma/client.js";
+import {
+	InstallmentStatus,
+	InvoiceStatus,
+	InvoiceType,
+	RefundStatus,
+	Role,
+	TransactionStatus,
+} from "../../../generated/prisma/enums.js";
+import type { PaymentTransactionWhereInput } from "../../../generated/prisma/models.js";
+import { confirmAdmission, sendAdmissionConfirmedEmail } from "../../lib/admission.js";
+import { AuditLogLite } from "../../lib/audit.js";
+import {
+	fromMinor,
+	makeReceiptNumber,
+	nextInstallmentRemaining,
+	planPayment,
+	randomCode,
+	reverseAllocations,
+	storedInstallmentStatus,
+	toMinor,
+	allocatePayment,
+} from "../../lib/billing.js";
 import { bkashClient } from "../../lib/bkash.js";
-import config from "../../config/index.js";
-import { PaymentWhereInput } from "../../../generated/prisma/models.js";
-import { IQuary } from "../../interface/index.js";
+import {
+	asAppError,
+	lockInvoice,
+	readPlanSnapshot,
+	recomputeInvoice,
+} from "../../lib/invoiceCore.js";
 import { transporter } from "../../lib/nodmailer.js";
-import { syncFeeStatus } from "../../lib/Installments.js";
+import { pdfGenerator } from "../../lib/pdf.js";
+import { prisma } from "../../lib/prisma.js";
+import config from "../../config/index.js";
+import { IQuary } from "../../interface/index.js";
+import { AppError } from "../../utils/AppError.js";
+import type { IInitPaymentPayload, IRefundPayload } from "./payment.interface.js";
 
-interface IInitBkashPaymentPayload {
-	installmentId: string;
+interface IActor {
+	userId: string;
+	role: Role;
 }
 
+const n = (d: { toString(): string } | null | undefined) => (d ? Number(d.toString()) : 0);
 
+const getStudentOrThrow = async (userId: string) => {
+	const student = await prisma.studentProfile.findUnique({ where: { userId } });
+	if (!student) throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	return student;
+};
 
-const initBkashPayment = async (
-	userId: string,
-	payload: IInitBkashPaymentPayload,
-) => {
-	const student = await prisma.studentProfile.findUnique({
-		where: { userId },
+const showTransaction = <T extends { amount: unknown; excessAmount: unknown; refundedAmount: unknown }>(
+	t: T,
+) => ({
+	...t,
+	amount: n(t.amount as never),
+	excessAmount: n(t.excessAmount as never),
+	refundedAmount: n(t.refundedAmount as never),
+});
+
+// ---------------------------------------------------------------------------
+// 1. Initiate
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates the bKash payment AND our PaymentTransaction (INITIATED) holding
+ * bKash's paymentID. The amount is decided here from the server's own
+ * schedule — the client can only ask for an amount, and it is validated
+ * against what is actually owed and the invoice's partial-payment policy.
+ */
+const initPayment = async (userId: string, payload: IInitPaymentPayload) => {
+	const student = await getStudentOrThrow(userId);
+
+	const invoice = await prisma.feeInvoice.findUnique({
+		where: { id: payload.invoiceId },
+		include: { installments: true },
 	});
-	if (!student) {
-		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	// same response for "not yours" and "doesn't exist" so ids can't be probed
+	if (!invoice || invoice.studentId !== student.id) {
+		throw new AppError(httpStatus.NOT_FOUND, "Invoice not found");
+	}
+	if (invoice.status === InvoiceStatus.CANCELLED) {
+		throw new AppError(httpStatus.CONFLICT, "This invoice was cancelled");
+	}
+	if (invoice.status === InvoiceStatus.PAID) {
+		throw new AppError(httpStatus.CONFLICT, "This invoice is already fully paid");
 	}
 
-	const installment = await prisma.installment.findUnique({
-		where: { id: payload.installmentId },
-		include: { fee: true },
-	});
-	if (!installment) {
-		throw new AppError(httpStatus.NOT_FOUND, "Installment not found");
-	}
-	if (installment.fee.studentId !== student.id) {
-		throw new AppError(httpStatus.FORBIDDEN, "This installment does not belong to you");
-	}
-	if (installment.status === FeeStatus.PAID) {
-		throw new AppError(httpStatus.CONFLICT, "This installment has already been paid");
+	const schedule = invoice.installments.map((i) => ({
+		number: i.number,
+		amountMinor: toMinor(i.amount),
+		paidMinor: toMinor(i.paidAmount),
+	}));
+	const plan = readPlanSnapshot(invoice.policySnapshot);
+
+	const amountMinor = payload.amount
+		? toMinor(payload.amount)
+		: (nextInstallmentRemaining(schedule)?.remainingMinor ?? 0);
+	try {
+		planPayment(schedule, amountMinor, plan.allowPartialPayment);
+	} catch (e) {
+		return asAppError(e);
 	}
 
-	// Pay in order: installment #3 can't be paid while #2 is still open.
-	const earlierUnpaid = await prisma.installment.findFirst({
-		where: {
-			feeId: installment.feeId,
-			number: { lt: installment.number },
-			status: { not: FeeStatus.PAID },
-		},
-		orderBy: { number: "asc" },
-	});
-	if (earlierUnpaid) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			`Please pay installment ${earlierUnpaid.number} first`,
-		);
-	}
-
-	const bkashResponse = await bkashClient.createPayment({
-		amount: installment.amount,
-		invoiceNumber: installment.id,
+	const bkash = await bkashClient.createPayment({
+		amount: amountMinor / 100,
+		invoiceNumber: `${invoice.invoiceNumber}-${randomCode(4)}`,
 		callbackURL: config.bkash_callback_url,
 	});
 
-	// paymentID <-> installment link lives in the DB (Payment.paymentId,
-	// unique). upsert handles retries: a cancelled/failed attempt, or a
-	// refunded installment being paid again, overwrites the old row.
-	await prisma.payment.upsert({
-		where: { installmentId: installment.id },
-		create: {
-			installmentId: installment.id,
-			paymentId: bkashResponse.paymentID,
-			amount: installment.amount,
-			status: PaymentStatus.PENDING,
-		},
-		update: {
-			paymentId: bkashResponse.paymentID,
-			amount: installment.amount,
-			status: PaymentStatus.PENDING,
-			trxId: null,
-			paidAt: null,
-			refundTrxId: null,
-			refundAt: null,
-			refundAmount: null,
-			reason: null,
+	const transaction = await prisma.paymentTransaction.create({
+		data: {
+			invoiceId: invoice.id,
+			studentId: student.id,
+			gatewayPaymentId: bkash.paymentID,
+			amount: fromMinor(amountMinor),
+			status: TransactionStatus.INITIATED,
 		},
 	});
 
 	return {
-		bkashURL: bkashResponse.bkashURL,
-		paymentID: bkashResponse.paymentID,
+		transactionId: transaction.id,
+		paymentID: bkash.paymentID,
+		bkashURL: bkash.bkashURL,
+		amount: amountMinor / 100,
 	};
 };
 
-const bkashCallback = async (paymentID: string, status: string) => {
-	if (!paymentID) {
-		throw new AppError(httpStatus.BAD_REQUEST, "Missing paymentID");
+// ---------------------------------------------------------------------------
+// 2. Verify + settle (callback and manual re-verify share this path)
+// ---------------------------------------------------------------------------
+
+interface IGatewayResult {
+	trxID: string;
+	paymentID?: string;
+	amount: string;
+	currency?: string;
+	transactionStatus: string;
+}
+
+/**
+ * Confirms with bKash that the money was really captured. Tries `execute`
+ * (the normal first step after the redirect); if that fails — most often
+ * because a duplicate callback already executed it — falls back to a
+ * server-to-server status query. Only a "Completed" answer counts.
+ */
+const confirmWithGateway = async (paymentID: string): Promise<IGatewayResult | null> => {
+	try {
+		return await bkashClient.executePayment(paymentID);
+	} catch {
+		try {
+			const status = await bkashClient.queryPayment(paymentID);
+			return status.transactionStatus === "Completed" ? status : null;
+		} catch {
+			return null;
+		}
 	}
-	if (!status) {
-		throw new AppError(httpStatus.BAD_REQUEST, "Missing status");
+};
+
+/**
+ * Books a gateway-confirmed payment against the invoice, atomically and
+ * idempotently:
+ *  - the invoice row is locked, so concurrent callbacks/verifies queue up
+ *  - an already-SUCCESS transaction is returned untouched (no double count)
+ *  - the captured amount is what bKash says, never what the client claims
+ *  - anything that can't be allocated (invoice cancelled meanwhile, amount
+ *    mismatch, overpayment race) is recorded as `excessAmount` so it can be
+ *    refunded instead of silently disappearing
+ */
+const settleTransaction = async (transactionId: string, gw: IGatewayResult) => {
+	const capturedMinor = toMinor(gw.amount);
+
+	const outcome = await prisma.$transaction(
+		async (tx) => {
+			const row = await tx.paymentTransaction.findUniqueOrThrow({
+				where: { id: transactionId },
+			});
+			await lockInvoice(tx, row.invoiceId);
+
+			const fresh = await tx.paymentTransaction.findUniqueOrThrow({
+				where: { id: transactionId },
+			});
+			if (fresh.status === TransactionStatus.SUCCESS || fresh.status === TransactionStatus.REFUNDED) {
+				return { alreadyDone: true as const, transaction: fresh, newlyConfirmed: false, invoiceId: fresh.invoiceId };
+			}
+
+			const invoice = await tx.feeInvoice.findUniqueOrThrow({
+				where: { id: fresh.invoiceId },
+				include: { installments: true },
+			});
+
+			const expectedMinor = toMinor(fresh.amount);
+			const mismatch =
+				capturedMinor !== expectedMinor ||
+				(gw.paymentID !== undefined && gw.paymentID !== fresh.gatewayPaymentId) ||
+				(gw.currency !== undefined && gw.currency !== fresh.currency);
+
+			let allocations: { number: number; amountMinor: number }[] = [];
+			let excessMinor = capturedMinor;
+			if (!mismatch && invoice.status !== InvoiceStatus.CANCELLED) {
+				const result = allocatePayment(
+					invoice.installments.map((i) => ({
+						number: i.number,
+						amountMinor: toMinor(i.amount),
+						paidMinor: toMinor(i.paidAmount),
+					})),
+					capturedMinor,
+				);
+				allocations = result.allocations;
+				excessMinor = result.excessMinor;
+			}
+
+			for (const a of allocations) {
+				const inst = invoice.installments.find((i) => i.number === a.number)!;
+				const newPaid = toMinor(inst.paidAmount) + a.amountMinor;
+				await tx.installment.update({
+					where: { id: inst.id },
+					data: {
+						paidAmount: fromMinor(newPaid),
+						status: storedInstallmentStatus(toMinor(inst.amount), newPaid) as InstallmentStatus,
+					},
+				});
+				await tx.paymentAllocation.create({
+					data: {
+						transactionId: fresh.id,
+						installmentId: inst.id,
+						amount: fromMinor(a.amountMinor),
+					},
+				});
+			}
+
+			const updated = await tx.paymentTransaction.update({
+				where: { id: fresh.id },
+				data: {
+					status: TransactionStatus.SUCCESS,
+					amount: fromMinor(capturedMinor), // what bKash actually captured
+					gatewayTrxId: gw.trxID,
+					receiptNumber: makeReceiptNumber(),
+					completedAt: new Date(),
+					excessAmount: fromMinor(excessMinor),
+					gatewayResponse: gw as unknown as Prisma.InputJsonValue,
+					failureReason: mismatch
+						? `Gateway mismatch: expected ${expectedMinor / 100}, captured ${capturedMinor / 100}`
+						: invoice.status === InvoiceStatus.CANCELLED
+							? "Invoice was cancelled before the payment was confirmed"
+							: null,
+				},
+			});
+
+			const recomputed = await recomputeInvoice(tx, invoice.id);
+
+			let newlyConfirmed = false;
+			if (invoice.type === InvoiceType.ADMISSION && recomputed.status === InvoiceStatus.PAID) {
+				newlyConfirmed = (await confirmAdmission(tx, invoice.studentId)).newlyConfirmed;
+			}
+
+			return { alreadyDone: false as const, transaction: updated, newlyConfirmed, invoiceId: invoice.id };
+		},
+		{ timeout: 20000 },
+	);
+
+	if (!outcome.alreadyDone) {
+		if (toMinor(outcome.transaction.excessAmount) > 0) {
+			console.error(
+				`[payments] ${outcome.transaction.id}: ৳${n(outcome.transaction.excessAmount)} captured but not allocated — needs a refund`,
+			);
+		}
+		void sendPaymentConfirmation(outcome.transaction.id);
+		if (outcome.newlyConfirmed) void sendAdmissionConfirmedEmail(outcome.transaction.studentId);
+	}
+	return outcome.transaction;
+};
+
+const sendPaymentConfirmation = async (transactionId: string) => {
+	try {
+		const t = await prisma.paymentTransaction.findUnique({
+			where: { id: transactionId },
+			include: {
+				invoice: { include: { semester: { select: { name: true } } } },
+				student: { include: { user: true } },
+			},
+		});
+		if (!t || !t.receiptNumber) return;
+
+		const label =
+			t.invoice.type === InvoiceType.SEMESTER
+				? `${t.invoice.semester?.name ?? "Semester"} fees`
+				: t.invoice.type === InvoiceType.ADMISSION
+					? "Admission fees"
+					: "Application fee";
+		const html = await ejs.renderFile(
+			path.join(process.cwd(), "src/app/templates/payment-confirmation.ejs"),
+			{
+				name: t.student.user.name,
+				semesterName: label,
+				amount: n(t.amount),
+				trxId: t.gatewayTrxId,
+				receiptNumber: t.receiptNumber,
+				invoiceNumber: t.invoice.invoiceNumber,
+				outstanding: Math.max(toMinor(t.invoice.payableAmount) - toMinor(t.invoice.paidAmount), 0) / 100,
+				paidAt: format(t.completedAt ?? new Date(), "dd MMM yyyy, hh:mm a"),
+			},
+		);
+		await transporter.sendMail({
+			from: config.email_sender,
+			to: t.student.user.email,
+			subject: `Payment Receipt ${t.receiptNumber}`,
+			html,
+		});
+	} catch {
+		// the payment is already committed; a failed email must not undo or hide it
+	}
+};
+
+/** bKash redirects the browser here. No auth possible — the transaction is found by bKash's paymentID. */
+const bkashCallback = async (paymentID: string, status: string) => {
+	if (!paymentID) throw new AppError(httpStatus.BAD_REQUEST, "Missing paymentID");
+	if (!status) throw new AppError(httpStatus.BAD_REQUEST, "Missing status");
+
+	const transaction = await prisma.paymentTransaction.findUnique({
+		where: { gatewayPaymentId: paymentID },
+	});
+	if (!transaction) {
+		throw new AppError(httpStatus.BAD_REQUEST, "No matching payment attempt found for this paymentID");
 	}
 
-	const paymentRecord = await prisma.payment.findUnique({
-		where: { paymentId: paymentID },
-	});
-	if (!paymentRecord) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"No matching payment attempt found for this paymentID",
-		);
+	if (transaction.status === TransactionStatus.SUCCESS || transaction.status === TransactionStatus.REFUNDED) {
+		return { success: true, message: "Payment already recorded", transactionId: transaction.id };
 	}
 
 	if (status !== "success") {
-		await prisma.payment.update({
-			where: { id: paymentRecord.id },
+		await prisma.paymentTransaction.updateMany({
+			where: {
+				id: transaction.id,
+				status: { in: [TransactionStatus.INITIATED, TransactionStatus.PENDING] },
+			},
 			data: {
-				status:
-					status === "cancel" ? PaymentStatus.CANCELLED : PaymentStatus.FAILED,
+				status: status === "cancel" ? TransactionStatus.CANCELLED : TransactionStatus.FAILED,
+				failureReason: `Gateway reported: ${status}`,
 			},
 		});
-		return { success: false, message: `Payment ${status}` };
+		return { success: false, message: `Payment ${status}`, transactionId: transaction.id };
 	}
 
-	if (paymentRecord.status === PaymentStatus.PAID) {
-		return { success: true, message: "Already recorded as paid" };
-	}
+	// in flight — NOT counted as paid until bKash confirms below
+	await prisma.paymentTransaction.updateMany({
+		where: { id: transaction.id, status: TransactionStatus.INITIATED },
+		data: { status: TransactionStatus.PENDING },
+	});
 
-	// Execute OUTSIDE the DB transaction — it's a network call to bKash,
-	// keeping it out of the transaction keeps the transaction's lock
-	// window short (matches the Healthcare pattern's comment on this).
-	const executeResult = await bkashClient.executePayment(paymentID);
-
-	const { updatedPayment, installment } = await prisma.$transaction(async (tx) => {
-		const installment = await tx.installment.update({
-			where: { id: paymentRecord.installmentId },
-			data: { status: FeeStatus.PAID },
+	const gw = await confirmWithGateway(paymentID);
+	if (!gw) {
+		await prisma.paymentTransaction.updateMany({
+			where: { id: transaction.id, status: TransactionStatus.PENDING },
+			data: { status: TransactionStatus.FAILED, failureReason: "bKash did not confirm the payment" },
 		});
-		await syncFeeStatus(tx, installment.feeId);
+		return { success: false, message: "Payment could not be verified", transactionId: transaction.id };
+	}
 
-		const updatedPayment = await tx.payment.update({
-			where: { id: paymentRecord.id },
+	const settled = await settleTransaction(transaction.id, gw);
+	return {
+		success: true,
+		message: "Payment successful",
+		transactionId: settled.id,
+		receiptNumber: settled.receiptNumber,
+	};
+};
+
+/**
+ * Re-checks a stuck INITIATED/PENDING transaction with bKash (student closed
+ * the tab before the callback, callback request failed, …). Safe to call any
+ * number of times — settling is idempotent.
+ */
+const verifyTransaction = async (transactionId: string, actor: IActor) => {
+	const transaction = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
+	if (!transaction) throw new AppError(httpStatus.NOT_FOUND, "Transaction not found");
+
+	if (actor.role === Role.STUDENT) {
+		const student = await getStudentOrThrow(actor.userId);
+		if (transaction.studentId !== student.id) {
+			throw new AppError(httpStatus.NOT_FOUND, "Transaction not found");
+		}
+	}
+	if (transaction.status === TransactionStatus.SUCCESS || transaction.status === TransactionStatus.REFUNDED) {
+		return showTransaction(transaction);
+	}
+
+	const gw = await bkashClient.queryPayment(transaction.gatewayPaymentId);
+	if (gw.transactionStatus === "Completed") {
+		return showTransaction(await settleTransaction(transaction.id, gw));
+	}
+	return { ...showTransaction(transaction), gatewayStatus: gw.transactionStatus };
+};
+
+// ---------------------------------------------------------------------------
+// 3. Refunds (admin)
+// ---------------------------------------------------------------------------
+
+const refundTransaction = async (actor: IActor, transactionId: string, payload: IRefundPayload) => {
+	const reverseCharge = payload.reverseCharge ?? true;
+
+	// Step 1 — reserve the refund amount under the invoice lock so two admins
+	// clicking at once can't refund the same money twice.
+	const reserved = await prisma.$transaction(async (tx) => {
+		const t0 = await tx.paymentTransaction.findUnique({ where: { id: transactionId } });
+		if (!t0) throw new AppError(httpStatus.NOT_FOUND, "Transaction not found");
+		await lockInvoice(tx, t0.invoiceId);
+
+		const t = await tx.paymentTransaction.findUniqueOrThrow({
+			where: { id: transactionId },
+			include: { allocations: true, refunds: true },
+		});
+		if (t.status !== TransactionStatus.SUCCESS) {
+			throw new AppError(httpStatus.CONFLICT, `Only successful payments can be refunded (this one is ${t.status})`);
+		}
+		if (!t.gatewayTrxId) throw new AppError(httpStatus.CONFLICT, "Payment has no gateway transaction id");
+
+		const reservedMinor = t.refunds
+			.filter((r) => r.status === RefundStatus.PENDING || r.status === RefundStatus.SUCCESS)
+			.reduce((a, r) => a + toMinor(r.amount), 0);
+		const refundableMinor = toMinor(t.amount) - reservedMinor;
+		const amountMinor = payload.amount ? toMinor(payload.amount) : refundableMinor;
+
+		if (amountMinor <= 0) throw new AppError(httpStatus.CONFLICT, "Nothing left to refund on this payment");
+		if (amountMinor > refundableMinor) {
+			throw new AppError(httpStatus.BAD_REQUEST, `Refund exceeds the refundable amount (৳${refundableMinor / 100})`);
+		}
+		if (reverseCharge) {
+			const allocated = t.allocations.reduce((a, x) => a + toMinor(x.amount), 0);
+			if (amountMinor > allocated) {
+				throw new AppError(
+					httpStatus.BAD_REQUEST,
+					"Refund exceeds the amount applied to the invoice — use reverseCharge=false to return an excess payment",
+				);
+			}
+		}
+
+		const refund = await tx.refund.create({
 			data: {
-				status: PaymentStatus.PAID,
-				trxId: executeResult.trxID,
-				paidAt: new Date(),
-				gatewayResponse: executeResult as object,
+				transactionId,
+				amount: fromMinor(amountMinor),
+				reason: payload.reason,
+				reverseCharge,
+				status: RefundStatus.PENDING,
+				requestedById: actor.userId,
 			},
 		});
-		return { updatedPayment, installment };
+		return { refund, amountMinor, paymentID: t.gatewayPaymentId, trxID: t.gatewayTrxId };
 	});
 
-	// Confirmation email — outside the transaction. If sending fails,
-	// that shouldn't roll back a payment that's already been captured.
-	const feeWithStudent = await prisma.fee.findUnique({
-		where: { id: installment.feeId },
-		include: {
-			student: { include: { user: true } },
-			semester: true,
-			_count: { select: { installments: true } },
-		},
-	});
+	// Step 2 — talk to bKash OUTSIDE any DB transaction.
+	let gateway: Awaited<ReturnType<typeof bkashClient.refundPayment>>;
+	try {
+		gateway = await bkashClient.refundPayment({
+			paymentID: reserved.paymentID,
+			trxID: reserved.trxID,
+			amount: reserved.amountMinor / 100,
+			sku: "Fee Refund",
+			reason: payload.reason,
+		});
+	} catch (e) {
+		await prisma.refund.update({
+			where: { id: reserved.refund.id },
+			data: { status: RefundStatus.FAILED, gatewayResponse: { error: String(e) } },
+		});
+		throw e;
+	}
 
-	if (feeWithStudent) {
-		const baseLabel = feeWithStudent.semester?.name ?? "Admission Fee";
-		const label =
-			feeWithStudent._count.installments > 1
-				? `${baseLabel} — Installment ${installment.number} of ${feeWithStudent._count.installments}`
-				: baseLabel;
+	// Step 3 — book it.
+	const updated = await prisma.$transaction(async (tx) => {
+		const t0 = await tx.paymentTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+		await lockInvoice(tx, t0.invoiceId);
 
-		const templatePath = path.join(
-			process.cwd(),
-			"src/app/templates/payment-confirmation.ejs",
+		const claimed = await tx.refund.updateMany({
+			where: { id: reserved.refund.id, status: RefundStatus.PENDING },
+			data: {
+				status: RefundStatus.SUCCESS,
+				gatewayRefundTrxId: gateway.refundTrxID,
+				gatewayResponse: gateway as unknown as Prisma.InputJsonValue,
+				completedAt: new Date(),
+			},
+		});
+		if (claimed.count === 0) return tx.paymentTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+
+		const t = await tx.paymentTransaction.findUniqueOrThrow({
+			where: { id: transactionId },
+			include: { allocations: { include: { installment: true } } },
+		});
+
+		if (reserved.refund.reverseCharge) {
+			let plan: { number: number; amountMinor: number }[];
+			try {
+				plan = reverseAllocations(
+					t.allocations.map((a) => ({ number: a.installment.number, allocatedMinor: toMinor(a.amount) })),
+					reserved.amountMinor,
+				);
+			} catch (e) {
+				return asAppError(e);
+			}
+			for (const r of plan) {
+				const alloc = t.allocations.find((a) => a.installment.number === r.number)!;
+				const inst = alloc.installment;
+				const newPaid = toMinor(inst.paidAmount) - r.amountMinor;
+				await tx.installment.update({
+					where: { id: inst.id },
+					data: {
+						paidAmount: fromMinor(newPaid),
+						status: storedInstallmentStatus(toMinor(inst.amount), newPaid) as InstallmentStatus,
+					},
+				});
+				await tx.paymentAllocation.update({
+					where: { id: alloc.id },
+					data: { amount: fromMinor(toMinor(alloc.amount) - r.amountMinor) },
+				});
+			}
+		}
+
+		const refundedMinor = toMinor(t.refundedAmount) + reserved.amountMinor;
+		const full = refundedMinor >= toMinor(t.amount);
+		const result = await tx.paymentTransaction.update({
+			where: { id: transactionId },
+			data: {
+				refundedAmount: fromMinor(refundedMinor),
+				status: full ? TransactionStatus.REFUNDED : TransactionStatus.SUCCESS,
+			},
+		});
+		await tx.feeInvoice.update({
+			where: { id: t.invoiceId },
+			data: { refundedAmount: { increment: fromMinor(reserved.amountMinor) } },
+		});
+		await recomputeInvoice(tx, t.invoiceId);
+		await AuditLogLite.write(
+			actor.userId,
+			"PAYMENT_REFUNDED",
+			"PaymentTransaction",
+			transactionId,
+			{ refunded: n(t.refundedAmount) },
+			{ refunded: refundedMinor / 100, reverseCharge: reserved.refund.reverseCharge },
+			payload.reason,
+			tx,
 		);
-		const html = await ejs.renderFile(templatePath, {
-			name: feeWithStudent.student.user.name,
-			semesterName: label,
-			amount: updatedPayment.amount,
-			trxId: updatedPayment.trxId,
-			paidAt: format(updatedPayment.paidAt ?? new Date(), "dd MMM yyyy, hh:mm a"),
-		});
+		return result;
+	});
 
-		await transporter
-			.sendMail({
-				from: config.email_sender,
-				to: feeWithStudent.student.user.email,
-				subject: "Payment Confirmation — University Management System",
-				html,
-			})
-			.catch(() => null);
+	return showTransaction(updated);
+};
+
+// ---------------------------------------------------------------------------
+// 4. Reads: history, admin list, receipt, collection report
+// ---------------------------------------------------------------------------
+
+const TX_INCLUDE = {
+	invoice: {
+		select: {
+			id: true,
+			invoiceNumber: true,
+			type: true,
+			semester: { select: { id: true, name: true } },
+		},
+	},
+	allocations: { select: { amount: true, installment: { select: { number: true } } } },
+	refunds: { orderBy: { createdAt: "desc" as const } },
+};
+
+const getMyPayments = async (userId: string, query: IQuary) => {
+	const student = await getStudentOrThrow(userId);
+	const rows = await prisma.paymentTransaction.findMany({
+		where: {
+			studentId: student.id,
+			status: (query.status as TransactionStatus) || undefined,
+			invoiceId: query.invoiceId || undefined,
+		},
+		include: TX_INCLUDE,
+		orderBy: { initiatedAt: "desc" },
+	});
+	return rows.map(showTransaction);
+};
+
+const getTransactionById = async (id: string, actor: IActor) => {
+	const t = await prisma.paymentTransaction.findUnique({ where: { id }, include: TX_INCLUDE });
+	if (!t) throw new AppError(httpStatus.NOT_FOUND, "Transaction not found");
+	if (actor.role === Role.STUDENT) {
+		const student = await getStudentOrThrow(actor.userId);
+		if (t.studentId !== student.id) throw new AppError(httpStatus.NOT_FOUND, "Transaction not found");
 	}
-
-	return { success: true, message: "Payment successful", payment: updatedPayment };
+	return showTransaction(t);
 };
 
 const getAllPayments = async (query: IQuary) => {
 	const limit = query.limit ? Number(query.limit) : 10;
 	const page = query.page ? Number(query.page) : 1;
-	const skip = (page - 1) * limit;
 
-	const sortBy = query.sortBy || "createdAt";
-	const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
-
-	const andConditions: PaymentWhereInput[] = [];
-
-	if (query.status) {
-		andConditions.push({ status: query.status as PaymentStatus });
-	}
-
+	const and: PaymentTransactionWhereInput[] = [];
+	if (query.status) and.push({ status: query.status as TransactionStatus });
+	if (query.studentId) and.push({ studentId: query.studentId });
+	if (query.semesterId) and.push({ invoice: { semesterId: query.semesterId } });
+	if (query.departmentId) and.push({ student: { departmentId: query.departmentId } });
 	if (query.searchTerm) {
 		const contains = { contains: query.searchTerm, mode: "insensitive" as const };
-		andConditions.push({
+		and.push({
 			OR: [
-				{ trxId: contains },
-				{ paymentId: contains },
-				{ installment: { fee: { student: { studentIdCode: contains } } } },
-				{ installment: { fee: { student: { user: { name: contains } } } } },
-				{ installment: { fee: { student: { user: { email: contains } } } } },
-				{ installment: { fee: { semester: { name: contains } } } },
+				{ gatewayTrxId: contains },
+				{ gatewayPaymentId: contains },
+				{ receiptNumber: contains },
+				{ invoice: { invoiceNumber: contains } },
+				{ student: { studentIdCode: contains } },
+				{ student: { user: { name: contains } } },
+				{ student: { user: { email: contains } } },
 			],
 		});
 	}
+	const where: PaymentTransactionWhereInput = { AND: and.length ? and : undefined };
 
-	if (query.studentId) {
-		andConditions.push({ installment: { fee: { studentId: query.studentId } } });
-	}
-
-	if (query.semesterId) {
-		andConditions.push({ installment: { fee: { semesterId: query.semesterId } } });
-	}
-
-	const where = { AND: andConditions.length > 0 ? andConditions : undefined };
-
-	const payments = await prisma.payment.findMany({
-		where,
-		take: limit,
-		skip,
-		orderBy: { [sortBy]: sortOrder },
-		include: {
-			installment: {
-				include: {
-					fee: {
-						include: {
-							student: { include: { user: { omit: { password: true } } } },
-							semester: true,
-						},
+	const [rows, total] = await Promise.all([
+		prisma.paymentTransaction.findMany({
+			where,
+			include: {
+				...TX_INCLUDE,
+				student: {
+					select: {
+						studentIdCode: true,
+						department: { select: { name: true } },
+						user: { select: { name: true, email: true } },
 					},
 				},
 			},
-		},
-	});
-
-	const totalPaymentCount = await prisma.payment.count({ where });
+			orderBy: { initiatedAt: "desc" },
+			take: limit,
+			skip: (page - 1) * limit,
+		}),
+		prisma.paymentTransaction.count({ where }),
+	]);
 
 	return {
-		data: payments,
-		meta: {
-			page,
-			limit,
-			total: totalPaymentCount,
-			totalPages: Math.ceil(totalPaymentCount / limit),
-		},
+		data: rows.map(showTransaction),
+		meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
 	};
 };
 
-/**
- * Each fee comes with its installments (ordered) and each installment's
- * payment. `isOverdue` is derived here: PENDING and past its due date.
- */
-const getMyFees = async (userId: string) => {
-	const student = await prisma.studentProfile.findUnique({
-		where: { userId },
+const getReceiptPdf = async (id: string, actor: IActor) => {
+	const t = await prisma.paymentTransaction.findUnique({
+		where: { id },
+		include: {
+			invoice: { include: { semester: { select: { name: true } }, items: true } },
+			allocations: { select: { amount: true, installment: { select: { number: true } } } },
+			student: {
+				include: { user: { select: { name: true, email: true } }, department: { select: { name: true } } },
+			},
+		},
 	});
-	if (!student) {
-		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	if (!t) throw new AppError(httpStatus.NOT_FOUND, "Transaction not found");
+	if (actor.role === Role.STUDENT) {
+		const student = await getStudentOrThrow(actor.userId);
+		if (t.studentId !== student.id) throw new AppError(httpStatus.NOT_FOUND, "Transaction not found");
+	}
+	if (!t.receiptNumber || (t.status !== TransactionStatus.SUCCESS && t.status !== TransactionStatus.REFUNDED)) {
+		throw new AppError(httpStatus.CONFLICT, "A receipt is only available for successful payments");
 	}
 
-	const fees = await prisma.fee.findMany({
-		where: { studentId: student.id, status: { not: FeeStatus.CANCELLED } },
-		include: {
-			semester: true,
-			items: true,
-			installments: { include: { payment: true }, orderBy: { number: "asc" } },
-		},
-		orderBy: { createdAt: "desc" },
+	const buffer = await pdfGenerator.generateReceiptPdf({
+		receiptNumber: t.receiptNumber,
+		invoiceNumber: t.invoice.invoiceNumber,
+		invoiceType: t.invoice.type,
+		semesterName: t.invoice.semester?.name ?? null,
+		studentName: t.student.user.name,
+		studentIdCode: t.student.studentIdCode,
+		departmentName: t.student.department.name,
+		gatewayTrxId: t.gatewayTrxId ?? "-",
+		paidAt: format(t.completedAt ?? t.createdAt, "dd MMM yyyy, hh:mm a"),
+		amount: n(t.amount),
+		refundedAmount: n(t.refundedAmount),
+		excessAmount: n(t.excessAmount),
+		invoiceTotal: n(t.invoice.payableAmount),
+		invoicePaid: n(t.invoice.paidAmount),
+		allocations: t.allocations
+			.map((a) => ({ installment: a.installment.number, amount: n(a.amount) }))
+			.sort((a, b) => a.installment - b.installment),
+		items: t.invoice.items.map((i) => ({ description: i.description, amount: n(i.amount) })),
 	});
-
-	const now = new Date();
-	return fees.map((fee) => ({
-		...fee,
-		paidAmount: fee.installments
-			.filter((i) => i.status === FeeStatus.PAID)
-			.reduce((sum, i) => sum + i.amount, 0),
-		installments: fee.installments.map((i) => ({
-			...i,
-			isOverdue: i.status !== FeeStatus.PAID && isBefore(i.dueDate, now),
-		})),
-	}));
+	return { buffer, receiptNumber: t.receiptNumber };
 };
 
-/**
- * Cancels (refunds) ONE paid installment. Refund-eligibility window is
- * the semester's enrollmentEnd (add/drop deadline). The bKash refund call
- * happens OUTSIDE the DB transaction so a slow gateway doesn't hold a
- * DB lock open.
- */
-const cancelPayment = async (userId: string, installmentId: string) => {
-	const student = await prisma.studentProfile.findUnique({
-		where: { userId },
-	});
-	if (!student) {
-		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
-	}
-
-	const installment = await prisma.installment.findUnique({
-		where: { id: installmentId },
-		include: { fee: { include: { semester: true } }, payment: true },
-	});
-	if (!installment) {
-		throw new AppError(httpStatus.NOT_FOUND, "Installment not found");
-	}
-	if (installment.fee.studentId !== student.id) {
-		throw new AppError(httpStatus.FORBIDDEN, "This installment does not belong to you");
-	}
-	if (!installment.payment || installment.payment.status !== PaymentStatus.PAID) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"This installment has no completed payment to cancel",
-		);
-	}
-
-	if (installment.fee.type === FeeType.ADMISSION) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"Admission fees are not eligible for self-service cancellation — contact the admissions office",
-		);
-	}
-
-	// Refund latest-first: refunding #2 while #3 is still paid would leave a
-	// hole in the payment sequence.
-	const laterPaid = await prisma.installment.findFirst({
+/** Money actually kept = captured − refunded, grouped by semester and department. */
+const getCollectionReport = async (query: IQuary) => {
+	const rows = await prisma.paymentTransaction.findMany({
 		where: {
-			feeId: installment.feeId,
-			number: { gt: installment.number },
-			status: FeeStatus.PAID,
+			status: { in: [TransactionStatus.SUCCESS, TransactionStatus.REFUNDED] },
+			invoice: { semesterId: query.semesterId || undefined },
+			student: { departmentId: query.departmentId || undefined },
+			completedAt:
+				query.from || query.to
+					? {
+							gte: query.from ? new Date(query.from) : undefined,
+							lte: query.to ? new Date(query.to) : undefined,
+						}
+					: undefined,
+		},
+		select: {
+			amount: true,
+			refundedAmount: true,
+			invoice: { select: { type: true, semester: { select: { id: true, name: true } } } },
+			student: { select: { department: { select: { id: true, name: true } } } },
 		},
 	});
-	if (laterPaid) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			`Cancel installment ${laterPaid.number} first`,
-		);
+
+	const bySemester = new Map<string, { semester: string; collected: number; refunded: number; count: number }>();
+	const byDepartment = new Map<string, { department: string; collected: number; refunded: number; count: number }>();
+	let collected = 0;
+	let refunded = 0;
+
+	for (const r of rows) {
+		const a = toMinor(r.amount);
+		const f = toMinor(r.refundedAmount);
+		collected += a;
+		refunded += f;
+
+		const sKey = r.invoice.semester?.id ?? r.invoice.type;
+		const s = bySemester.get(sKey) ?? { semester: r.invoice.semester?.name ?? r.invoice.type, collected: 0, refunded: 0, count: 0 };
+		s.collected += a; s.refunded += f; s.count += 1;
+		bySemester.set(sKey, s);
+
+		const d = byDepartment.get(r.student.department.id) ?? { department: r.student.department.name, collected: 0, refunded: 0, count: 0 };
+		d.collected += a; d.refunded += f; d.count += 1;
+		byDepartment.set(r.student.department.id, d);
 	}
 
-	const enrollmentEnd = installment.fee.semester?.enrollmentEnd;
-	if (!enrollmentEnd || !isBefore(new Date(), enrollmentEnd)) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"Refund window has closed — this semester's add/drop deadline has passed",
-		);
-	}
-
-	const refundResult = await bkashClient.refundPayment({
-		paymentID: installment.payment.paymentId,
-		trxID: installment.payment.trxId as string,
-		amount: installment.payment.amount,
-		sku: "Semester Fee Cancellation",
-		reason: "Student requested fee cancellation",
+	const fmt = <T extends { collected: number; refunded: number }>(x: T) => ({
+		...x,
+		collected: x.collected / 100,
+		refunded: x.refunded / 100,
+		net: (x.collected - x.refunded) / 100,
 	});
-
-	const updatedPayment = await prisma.$transaction(async (tx) => {
-		const payment = await tx.payment.update({
-			where: { id: installment.payment!.id },
-			data: {
-				status: PaymentStatus.REFUNDED,
-				refundTrxId: refundResult.refundTrxID,
-				refundAt: refundResult.completedTime
-					? new Date(refundResult.completedTime)
-					: new Date(),
-				refundAmount: Number(refundResult.amount),
-				reason: "Student requested fee cancellation",
-				gatewayResponse: refundResult as unknown as object,
-			},
-		});
-		await tx.installment.update({
-			where: { id: installment.id },
-			data: { status: FeeStatus.PENDING },
-		});
-		await syncFeeStatus(tx, installment.feeId);
-		return payment;
-	});
-
-	return { payment: updatedPayment };
-};
-
-// Downloadable receipt for one SUCCESSFUL payment. Students can only
-// see their own; admins can see any. Only PAID payments get receipts.
-const downloadReceipt = async (userId: string, role: string, paymentId: string) => {
-	const payment = await prisma.payment.findUnique({
-		where: { id: paymentId },
-		include: {
-			installment: {
-				include: {
-					fee: {
-						include: {
-							semester: true,
-							student: { include: { user: true } },
-						},
-					},
-				},
-			},
-		},
-	});
-	if (!payment) throw new AppError(httpStatus.NOT_FOUND, "Payment not found");
-	if (role !== "ADMIN" && payment.installment.fee.student.userId !== userId) {
-		throw new AppError(httpStatus.FORBIDDEN, "This receipt does not belong to you");
-	}
-	if (payment.status !== PaymentStatus.PAID) {
-		throw new AppError(httpStatus.BAD_REQUEST, "Only successful payments have receipts");
-	}
-
-	const fee = payment.installment.fee;
-	const student = fee.student;
-	const doc = new PDFDocument({ margin: 50 });
-	const chunks: Buffer[] = [];
-	doc.on("data", (c) => chunks.push(c));
-	const done = new Promise<Buffer>((resolve, reject) => {
-		doc.on("end", () => resolve(Buffer.concat(chunks)));
-		doc.on("error", reject);
-	});
-
-	doc.fontSize(20).text("Payment Receipt", { align: "center" });
-	doc.moveDown();
-	doc.fontSize(11);
-	doc.text(`Receipt No: ${payment.trxId ?? payment.paymentId}`);
-	doc.text(`Date: ${format(payment.paidAt ?? new Date(), "dd MMM yyyy, hh:mm a")}`);
-	doc.moveDown();
-	doc.text(`Student: ${student.user.name} (${student.studentIdCode})`);
-	doc.text(`Invoice: ${fee.invoiceNo ?? fee.id} (${fee.type})`);
-	doc.text(`Semester: ${fee.semester?.name ?? "Admission"}`);
-	doc.text(`Installment: ${payment.installment.number}`);
-	doc.moveDown();
-	doc.fontSize(14).text(`Amount Paid: ৳${payment.amount.toLocaleString()}`);
-	doc.fontSize(11).text(`Transaction ID: ${payment.trxId ?? "—"}`);
-	doc.moveDown();
-	doc.fontSize(9).fillColor("gray").text("System-generated receipt. Pending gateway transactions are never counted as paid.");
-	doc.end();
-
-	return { buffer: await done, payment };
+	return {
+		totals: fmt({ collected, refunded, count: rows.length }),
+		bySemester: [...bySemester.values()].map(fmt),
+		byDepartment: [...byDepartment.values()].map(fmt),
+	};
 };
 
 export const PaymentService = {
-	initBkashPayment,
+	initPayment,
 	bkashCallback,
+	verifyTransaction,
+	refundTransaction,
+	getMyPayments,
+	getTransactionById,
 	getAllPayments,
-	getMyFees,
-	cancelPayment,
-	downloadReceipt,
+	getReceiptPdf,
+	getCollectionReport,
 };

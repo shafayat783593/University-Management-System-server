@@ -135,7 +135,7 @@ const buildTranscriptData = async (
 
 	return {
 		studentName: student.user.name,
-		studentId: student.studentIdCode,
+		studentId: student.studentIdCode ?? "PENDING",
 		programName: student.department.name,
 		semesters,
 		cumulativeGpa:

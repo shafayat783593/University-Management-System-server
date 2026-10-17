@@ -2,7 +2,7 @@ import httpStatus from "http-status";
 import { prisma } from "../../lib/prisma.js";
 import { EnrollmentStatus, ResultStatus, SemesterStatus } from "../../../generated/prisma/enums.js";
 import { AppError } from "../../utils/AppError.js";
-import { tuitionFeeCreateData } from "../../lib/Installments.js";
+import { assertAdmissionConfirmed, assertNoOverdueDues } from "../../lib/dues.js";
 
 
 const PASSING_PERCENTAGE = 40;
@@ -67,32 +67,10 @@ const createEnrollment = async (
 		);
 	}
 
-	const admissionApplication = await prisma.admissionApplication.findUnique({
-		where: { studentId: student.id },
-	});
-	if (!admissionApplication) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"Submit your admission application (POST /admission-applications) before enrolling in any section",
-		);
-	}
-	// Pipeline: verify → approve → pay admission fee → enroll.
-	if (admissionApplication.status !== "APPROVED") {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"Your admission application is still under review — you can enroll once it is approved",
-		);
-	}
-	const admissionFee = await prisma.fee.findFirst({
-		where: { studentId: student.id, type: "ADMISSION", status: { not: "CANCELLED" } },
-		select: { status: true },
-	});
-	if (admissionFee && admissionFee.status !== "PAID") {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"Pay your admission fee in full before enrolling in any section",
-		);
-	}
+	// Pipeline: apply -> admin approves -> admission invoice paid -> admission
+	// confirmed (Student ID issued) -> enroll. Then no overdue restricting dues.
+	await assertAdmissionConfirmed(student.id);
+	await assertNoOverdueDues(student.id);
 
 	const section = await prisma.section.findUnique({
 		where: { id: payload.sectionId },
@@ -175,32 +153,8 @@ const createEnrollment = async (
 		});
 	});
 
-	// Auto-create this semester's Fee row on first enrollment, if the
-	// semester has a fee amount set (via POST /fees/generate at least
-	// once). This is what closes the gap where a student who
-	// registers/enrolls after a bulk fee-generation run would otherwise
-	// never get billed unless Admin remembered to re-run it. Kept
-	// outside the seat-allocation transaction above — billing failing
-	// shouldn't roll back a successful enrollment, and the upsert is
-	// idempotent so it's safe even if this runs more than once.
-	if (section.semester.feeAmount !== null) {
-		const feeExists = await prisma.fee.findUnique({
-			where: {
-				studentId_semesterId: {
-					studentId: student.id,
-					semesterId: section.semesterId,
-				},
-			},
-			select: { id: true },
-		});
-		if (!feeExists) {
-			// Fee + installments in one nested write; a concurrent duplicate
-			// hits @@unique([studentId, semesterId]) and is safely ignored.
-			await prisma.fee
-				.create({ data: tuitionFeeCreateData(student.id, section.semester) })
-				.catch(() => null);
-		}
-	}
+	// No invoice is created here. The student generates their semester
+	// invoice (POST /invoices/semester/generate-my) after choosing courses.
 
 	return enrollmentResult;
 };

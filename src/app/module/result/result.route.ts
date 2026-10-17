@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { Role } from "../../../generated/prisma/enums.js";
 import { auth } from "../../middleware/auth.js";
+import { requireNoDues } from "../../middleware/requireNoDues.js";
 import { ResultValidation } from "./validation.result.js";
 import { validateRequest } from "../../middleware/validateRequest.js";
 import { ResultController } from "./result.controller.js";
@@ -25,30 +26,35 @@ router.patch(
 	validateRequest(ResultValidation.overrideResultZodSchema),
 	ResultController.overrideResult,
 );
-router.get("/transcript", auth(Role.STUDENT), ResultController.getMyTranscript);
+router.get("/transcript", auth(Role.STUDENT), requireNoDues, ResultController.getMyTranscript);
 router.get(
 	"/transcript/download",
 	auth(Role.STUDENT),
+	requireNoDues,
 	ResultController.downloadTranscript,
 );
 router.post(
 	"/transcript/email",
 	auth(Role.STUDENT),
+	requireNoDues,
 	ResultController.emailTranscript,
 );
 router.get(
 	"/sections/:sectionId/my-result",
 	auth(Role.STUDENT),
+	requireNoDues,
 	ResultController.getSectionResultSheet,
 );
 router.get(
 	"/sections/:sectionId/my-result/download",
 	auth(Role.STUDENT),
+	requireNoDues,
 	ResultController.downloadResultSheet,
 );
 router.post(
 	"/sections/:sectionId/my-result/email",
 	auth(Role.STUDENT),
+	requireNoDues,
 	ResultController.emailResultSheet,
 );
 

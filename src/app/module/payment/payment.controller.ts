@@ -1,13 +1,13 @@
+import type { Request, Response } from "express";
 import httpStatus from "http-status";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import { PaymentService } from "./payment.service.js";
-import { Request, Response } from "express";
 
-const initBkashPayment = catchAsync(async (req: Request, res: Response) => {
-	const userId = req.user?.userId;
-	const payload = req.body;
-	const result = await PaymentService.initBkashPayment(userId as string, payload);
+const actor = (req: Request) => ({ userId: req.user!.userId, role: req.user!.role });
+
+const initPayment = catchAsync(async (req: Request, res: Response) => {
+	const result = await PaymentService.initPayment(req.user?.userId as string, req.body);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -16,10 +16,12 @@ const initBkashPayment = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+// bKash redirects the student's browser here — no auth()
 const bkashCallback = catchAsync(async (req: Request, res: Response) => {
-	const paymentID = req.query.paymentID as string;
-	const status = req.query.status as string;
-	const result = await PaymentService.bkashCallback(paymentID, status);
+	const result = await PaymentService.bkashCallback(
+		req.query.paymentID as string,
+		req.query.status as string,
+	);
 	sendResponse(res, {
 		success: result.success,
 		statusCode: httpStatus.OK,
@@ -28,13 +30,42 @@ const bkashCallback = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
-const cancelPayment = catchAsync(async (req: Request, res: Response) => {
-	const userId = req.user?.userId;
-	const result = await PaymentService.cancelPayment(userId as string, req.params.installmentId as string);
+const verifyTransaction = catchAsync(async (req: Request, res: Response) => {
+	const result = await PaymentService.verifyTransaction((req.params.id as string), actor(req));
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
-		message: "Payment cancelled and refund initiated",
+		message: "Payment status checked",
+		data: result,
+	});
+});
+
+const refundTransaction = catchAsync(async (req: Request, res: Response) => {
+	const result = await PaymentService.refundTransaction(actor(req), (req.params.id as string), req.body);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Refund processed",
+		data: result,
+	});
+});
+
+const getMyPayments = catchAsync(async (req: Request, res: Response) => {
+	const result = await PaymentService.getMyPayments(req.user?.userId as string, req.query);
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Payment history retrieved",
+		data: result,
+	});
+});
+
+const getTransactionById = catchAsync(async (req: Request, res: Response) => {
+	const result = await PaymentService.getTransactionById((req.params.id as string), actor(req));
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "Transaction retrieved",
 		data: result,
 	});
 });
@@ -49,37 +80,31 @@ const getAllPayments = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
-const getMyFees = catchAsync(async (req: Request, res: Response) => {
-	const userId = req.user?.userId;
-	const result = await PaymentService.getMyFees(userId as string);
+const downloadReceipt = catchAsync(async (req: Request, res: Response) => {
+	const { buffer, receiptNumber } = await PaymentService.getReceiptPdf((req.params.id as string), actor(req));
+	res.setHeader("Content-Type", "application/pdf");
+	res.setHeader("Content-Disposition", `attachment; filename="receipt-${receiptNumber}.pdf"`);
+	res.send(buffer);
+});
+
+const getCollectionReport = catchAsync(async (req: Request, res: Response) => {
+	const result = await PaymentService.getCollectionReport(req.query);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
-		message: "Fees retrieved",
+		message: "Collection report generated",
 		data: result,
 	});
 });
 
-const downloadReceipt = catchAsync(async (req: Request, res: Response) => {
-	// @ts-expect-error req.user is attached by the auth() middleware
-	const { buffer, payment } = await PaymentService.downloadReceipt(
-		req.user.userId,
-		req.user.role,
-		req.params.paymentId as string,
-	);
-	res.setHeader("Content-Type", "application/pdf");
-	res.setHeader(
-		"Content-Disposition",
-		`attachment; filename="receipt-${payment.trxId ?? payment.paymentId}.pdf"`,
-	);
-	res.send(buffer);
-});
-
 export const PaymentController = {
-	initBkashPayment,
+	initPayment,
 	bkashCallback,
-	cancelPayment,
+	verifyTransaction,
+	refundTransaction,
+	getMyPayments,
+	getTransactionById,
 	getAllPayments,
-	getMyFees,
 	downloadReceipt,
+	getCollectionReport,
 };

@@ -110,7 +110,7 @@ const getAllSemesters = async (query: IQuary) => {
 			_count: {
 				select: {
 					sections: true,
-					fees: true,
+		invoices: true,
 				},
 			},
 		},

@@ -1,14 +1,9 @@
-
-
-
 import httpStatus from "http-status";
 import { catchAsync } from "../../utils/catchAsync.js";
-import { SettingService } from "./setting.service.js";
 import { sendResponse } from "../../utils/sendResponse.js";
-import { Request, Response } from "express";
+import { SettingService } from "./setting.service.js";
 
-
-const getSettings = catchAsync(async(req: Request, res: Response)  => {
+const getSettings = catchAsync(async (req, res) => {
 	const result = await SettingService.getSettings();
 	sendResponse(res, {
 		success: true,
@@ -18,7 +13,7 @@ const getSettings = catchAsync(async(req: Request, res: Response)  => {
 	});
 });
 
-const updateSettings = catchAsync(async (req: Request, res: Response)  => {
+const updateSettings = catchAsync(async (req, res) => {
 	const result = await SettingService.updateSettings(req.body);
 	sendResponse(res, {
 		success: true,

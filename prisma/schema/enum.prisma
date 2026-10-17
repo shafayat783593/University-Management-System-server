@@ -43,36 +43,7 @@ enum ResultStatus {
   PUBLISHED
 }
 
-enum FeeType {
-  ADMISSION
-  TUITION
-}
-
-enum FeeStatus {
-  PENDING
-  PARTIALLY_PAID
-  PAID
-  FAILED
-  CANCELLED
-}
-
-enum InvoiceItemKind {
-  TUITION
-  REGISTRATION
-  LAB
-  EXAM
-  LIBRARY
-  ADMISSION
-  OTHER
-}
-
 enum InstructorApplicationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-enum AdmissionStatus {
   PENDING
   APPROVED
   REJECTED
@@ -88,10 +59,86 @@ enum DayOfWeek {
   SATURDAY
 }
 
-enum PaymentStatus {
-  PENDING
+// ---------- Billing ----------
+
+enum FeeItemType {
+  APPLICATION
+  ADMISSION
+  ID_CARD
+  CAUTION_DEPOSIT   // refundable — kept apart from non-refundable charges
+  TUITION
+  REGISTRATION
+  LABORATORY
+  EXAMINATION
+  LIBRARY
+  LATE_FEE
+  OTHER
+}
+
+enum FeeCalcMethod {
+  FLAT        // fixed amount per invoice
+  PER_CREDIT  // rate x billable registered credits
+}
+
+enum InvoiceType {
+  APPLICATION
+  ADMISSION
+  SEMESTER
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIALLY_PAID
   PAID
+  CANCELLED
+}
+
+// OVERDUE is never stored — it is derived (dueDate + grace < now and balance > 0).
+// It exists so API responses can use one enum for the effective state.
+enum InstallmentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+enum TransactionStatus {
+  INITIATED
+  PENDING
+  SUCCESS
   FAILED
   CANCELLED
   REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum LateFeeType {
+  NONE
+  FIXED
+  PERCENT   // percent of the overdue installment's remaining balance
+}
+
+enum AdjustmentType {
+  WAIVER
+  SCHOLARSHIP
+  DISCOUNT
+  ADJUSTMENT   // signed manual correction
+  LATE_FEE
+}
+
+enum AdvanceType {
+  NONE
+  PERCENT
+  FIXED
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
 }

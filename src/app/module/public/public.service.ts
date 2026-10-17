@@ -6,6 +6,7 @@ import {
 } from "../../../generated/prisma/enums.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
+import { getFeeSchedule } from "../../lib/invoiceCore.js";
 import { SemesterService } from "../semester/semester.service.js";
 
 /** Landing-page counters. Public, so counts only — no personal data. */
@@ -26,7 +27,7 @@ const getStats = async () => {
 	return { students, instructors, departments, courses };
 };
 
-/** Departments with counts + the open semester's tuition (tuition is per semester, not per department). */
+/** Departments with counts + the rate card (tuition is per credit; fixed fees listed separately). */
 const getDepartmentCards = async () => {
 	const [departments, openSemester] = await Promise.all([
 		prisma.department.findMany({
@@ -35,10 +36,16 @@ const getDepartmentCards = async () => {
 		}),
 		prisma.semester.findFirst({
 			where: { status: SemesterStatus.OPEN },
-			select: { name: true, feeAmount: true, installmentCount: true },
+			select: { id: true, name: true },
 		}),
 	]);
-	return { departments, tuition: openSemester };
+	const cards = await Promise.all(
+		departments.map(async (d) => ({
+			...d,
+			feeSchedule: await getFeeSchedule(prisma, "SEMESTER", d.id, openSemester?.id ?? null),
+		})),
+	);
+	return { departments: cards, semester: openSemester };
 };
 
 /** Approved instructors only; no email/phone/resume exposed. */

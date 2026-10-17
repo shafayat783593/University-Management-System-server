@@ -23,7 +23,7 @@
 					<tr>
 						<td style="padding:40px;">
 							<p style="margin:0 0 24px; color:#475569; font-size:15px; line-height:1.6;">
-								We've received your semester fee payment. Here's your receipt for your records.
+								We've received and verified your payment. Here's your receipt for your records.
 							</p>
 
 							<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F0FDF4; border:1px solid #BBF7D0; border-radius:12px;">
@@ -31,8 +31,16 @@
 									<td style="padding:20px 24px;">
 										<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
 											<tr>
-												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600; width:140px;">Semester</td>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600; width:140px;">For</td>
 												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= semesterName %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Receipt No.</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px; font-weight:700;"><%= receiptNumber %></td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Invoice</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px;"><%= invoiceNumber %></td>
 											</tr>
 											<tr>
 												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Amount Paid</td>
@@ -51,6 +59,10 @@
 											<tr>
 												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Method</td>
 												<td style="padding:6px 0; color:#0f172a; font-size:14px;">bKash</td>
+											</tr>
+											<tr>
+												<td style="padding:6px 0; color:#166534; font-size:13px; font-weight:600;">Balance Due</td>
+												<td style="padding:6px 0; color:#0f172a; font-size:14px; font-weight:700;">৳<%= outstanding %></td>
 											</tr>
 										</table>
 									</td>

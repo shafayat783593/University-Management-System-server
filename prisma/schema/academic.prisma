@@ -8,6 +8,7 @@ model Department {
   courses     Course[]
   students    StudentProfile[]
   instructors InstructorProfile[]
+  feePolicies FeePolicy[]
 
   @@map("departments")
 }
@@ -43,15 +44,14 @@ model Semester {
   examWeekStart    DateTime?
   examWeekEnd      DateTime?
   resultPublishDate DateTime?
-  feeAmount        Float?         // set once via POST /fees/generate, then reused to auto-create a Fee row for any student who enrolls afterward
-  installmentCount Int            @default(1) // Admin-fixed number of monthly installments; 1 = pay in full
-  firstInstallmentDue DateTime?   // due date of installment #1; later ones are +1 month each
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   sections Section[]
-  fees     Fee[]
-  feePolicy FeePolicy?
+  invoices            FeeInvoice[]
+  feePolicies         FeePolicy[]
+  installmentPolicies InstallmentPolicy[]
+  waivers             StudentWaiver[]
 
   @@unique([year, term])
   @@map("semesters")

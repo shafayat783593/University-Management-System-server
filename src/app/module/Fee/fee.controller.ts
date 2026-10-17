@@ -3,7 +3,7 @@ import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import { Request, Response } from "express";
 import { FeeService } from "./fee.service.js";
-import { InvoiceService } from "./invoice.service.js";
+import { FeeBillingService } from "./invoice.service.js";
 
 
 const generateFeesForSemester = catchAsync(async (req:Request, res:Response) => {
@@ -17,7 +17,7 @@ const generateFeesForSemester = catchAsync(async (req:Request, res:Response) => 
 });
 
 const getPolicy = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.getPolicy(req.query.semesterId as string);
+	const result = await FeeBillingService.getPolicy(req.query.semesterId as string);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -27,7 +27,7 @@ const getPolicy = catchAsync(async (req: Request, res: Response) => {
 });
 
 const upsertPolicy = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.upsertPolicy(req.body);
+	const result = await FeeBillingService.upsertPolicy(req.body);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -37,7 +37,7 @@ const upsertPolicy = catchAsync(async (req: Request, res: Response) => {
 });
 
 const generateFromPolicy = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.generateFromPolicy(req.body.semesterId);
+	const result = await FeeBillingService.generateFromPolicy(req.body.semesterId);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.CREATED,
@@ -47,7 +47,7 @@ const generateFromPolicy = catchAsync(async (req: Request, res: Response) => {
 });
 
 const adjustFee = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.adjustFee(req.params.feeId as string, req.body);
+	const result = await FeeBillingService.adjustFee(req.params.feeId as string, req.body);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -58,7 +58,7 @@ const adjustFee = catchAsync(async (req: Request, res: Response) => {
 
 const cancelFee = catchAsync(async (req: Request, res: Response) => {
 	const reason = (req.body?.reason as string | undefined) ?? "Cancelled by admin";
-	const result = await InvoiceService.cancelFee(req.params.feeId as string, reason);
+	const result = await FeeBillingService.cancelFee(req.params.feeId as string, reason);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -68,7 +68,7 @@ const cancelFee = catchAsync(async (req: Request, res: Response) => {
 });
 
 const outstandingDues = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.outstandingDues(req.query.semesterId as string | undefined);
+	const result = await FeeBillingService.outstandingDues(req.query.semesterId as string | undefined);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -78,7 +78,7 @@ const outstandingDues = catchAsync(async (req: Request, res: Response) => {
 });
 
 const overdueInstallments = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.overdueInstallments(req.query.semesterId as string | undefined);
+	const result = await FeeBillingService.overdueInstallments(req.query.semesterId as string | undefined);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -88,7 +88,7 @@ const overdueInstallments = catchAsync(async (req: Request, res: Response) => {
 });
 
 const collectionSummary = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.collectionSummary(req.query.semesterId as string | undefined);
+	const result = await FeeBillingService.collectionSummary(req.query.semesterId as string | undefined);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -98,7 +98,7 @@ const collectionSummary = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getAdmissionFeeSetting = catchAsync(async (_req: Request, res: Response) => {
-	const result = await InvoiceService.getAdmissionFeeSetting();
+	const result = await FeeBillingService.getAdmissionFeeSetting();
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -108,7 +108,7 @@ const getAdmissionFeeSetting = catchAsync(async (_req: Request, res: Response) =
 });
 
 const setAdmissionFeeSetting = catchAsync(async (req: Request, res: Response) => {
-	const result = await InvoiceService.setAdmissionFeeSetting(req.body.amount ?? null, {
+	const result = await FeeBillingService.setAdmissionFeeSetting(req.body.amount ?? null, {
 		applicationFeeAmount: req.body.applicationFeeAmount,
 		admissionInstallmentCount: req.body.admissionInstallmentCount,
 	});

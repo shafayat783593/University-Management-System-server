@@ -5,7 +5,6 @@ export interface IRegisterStudentPayload {
   email: string;
   password: string;
   departmentId: string;
-  studentIdCode: string;
   phone?: string;
 }
 
@@ -25,7 +24,6 @@ export interface IGoogleLoginPayload {
 
 export interface ICompleteProfilePayload {
   departmentId: string;
-  studentIdCode: string;
   phone?: string;
 }
 

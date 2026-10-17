@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Payment confirmed</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+	<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
+		<tr>
+			<td align="center">
+				<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(15, 23, 42, 0.08);">
+
+					<!-- Header -->
+					<tr>
+						<td style="background:linear-gradient(135deg, #6366F1 0%, #4F46E5 60%, #4338CA 100%); padding:36px 40px;">
+							<span style="display:inline-block; background-color:rgba(255,255,255,0.2); color:#ffffff; font-size:12px; font-weight:600; letter-spacing:1px; padding:6px 14px; border-radius:999px; text-transform:uppercase;">Admission Confirmed</span>
+							<h1 style="margin:18px 0 0; color:#ffffff; font-size:24px; font-weight:700;">Welcome, <%= name %> 🎓</h1>
+						</td>
+					</tr>
+					<tr>
+						<td style="padding:40px;">
+							<p style="margin:0 0 24px; color:#475569; font-size:15px; line-height:1.6;">
+								Your admission fee has been verified and your admission to <strong><%= departmentName %></strong> is confirmed. You can now register for courses and generate your semester invoice.
+							</p>
+							<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EEF2FF; border:1px solid #C7D2FE; border-radius:12px;">
+								<tr>
+									<td style="padding:20px 24px;">
+										<p style="margin:0; color:#3730A3; font-size:13px; font-weight:600;">Your Student ID</p>
+										<p style="margin:6px 0 0; color:#0f172a; font-family:monospace; font-size:24px; font-weight:700;"><%= studentIdCode %></p>
+										<p style="margin:10px 0 0; color:#64748b; font-size:12px;">Confirmed on <%= confirmedAt %></p>
+									</td>
+								</tr>
+							</table>
+						</td>
+					</tr>
+					<tr>
+						<td style="padding:24px 40px; background-color:#f8fafc; border-top:1px solid #e2e8f0;">
+							<p style="margin:0; color:#94a3b8; font-size:12px; text-align:center;">
+								&copy; University Management System. This is an automated message — please don't reply.
+							</p>
+						</td>
+					</tr>
+
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>

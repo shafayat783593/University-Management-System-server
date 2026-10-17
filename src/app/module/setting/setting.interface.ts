@@ -1,5 +1,4 @@
-
-
 export interface IUpdateSystemSettingPayload {
-	admissionFeeAmount: number;
+	applicationFeeRequired?: boolean;
+	admissionPaymentRequiredToEnroll?: boolean;
 }

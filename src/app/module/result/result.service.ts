@@ -380,7 +380,7 @@ const getTranscript = async (userId: string) => {
 		(sum, s) =>
 			sum +
 			s.courses.reduce(
-				(cs, c) => (c.gradePoint !== null ? cs + c.creditHours : cs),
+				(cs: number, c: { gradePoint: number | null; creditHours: number }) => (c.gradePoint !== null ? cs + c.creditHours : cs),
 				0,
 			),
 		0,
@@ -389,7 +389,7 @@ const getTranscript = async (userId: string) => {
 		(sum, s) =>
 			sum +
 			s.courses.reduce(
-				(cs, c) => (c.gradePoint !== null ? cs + c.gradePoint * c.creditHours : cs),
+				(cs: number, c: { gradePoint: number | null; creditHours: number }) => (c.gradePoint !== null ? cs + c.gradePoint * c.creditHours : cs),
 				0,
 			),
 		0,
@@ -465,7 +465,7 @@ const buildResultSheetPdfBuffer = async (userId: string, sectionId: string) => {
  
 	const buffer = await pdfGenerator.generateResultSheetPdf({
 		studentName: student.user.name,
-		studentIdCode: student.studentIdCode,
+		studentIdCode: student.studentIdCode ?? "PENDING",
 		courseCode: sheet.course.code,
 		courseTitle: sheet.course.title,
 		semesterName: sheet.semester.name,
@@ -507,7 +507,7 @@ const buildTranscriptPdfBuffer = async (userId: string) => {
  
 	const buffer = await pdfGenerator.generateTranscriptPdf({
 		studentName: student.user.name,
-		studentIdCode: student.studentIdCode,
+		studentIdCode: student.studentIdCode ?? "PENDING",
 		semesters: semesters.map((s) => ({
 			semesterName: s.semesterName,
 			gpa: s.gpa,
@@ -552,4 +552,3 @@ export const ResultService = {
 	downloadTranscript,
 	emailTranscript,
 };
- 

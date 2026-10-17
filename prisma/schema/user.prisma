@@ -26,7 +26,8 @@ model StudentProfile {
   id             String   @id @default(uuid())
   userId         String   @unique
   user           User     @relation(fields: [userId], references: [id])
-  studentIdCode  String   @unique // e.g. registration/roll number
+  studentIdCode  String?  @unique // generated when admission is confirmed (e.g. CSE-27-0001); null until then
+  admissionConfirmedAt DateTime? // set once the admission invoice is paid; gates enrollment
   departmentId   String
   department     Department @relation(fields: [departmentId], references: [id])
   phone          String?
@@ -41,7 +42,9 @@ model StudentProfile {
   enrollments           Enrollment[]
   attendanceRecords     AttendanceRecord[]
   results               Result[]
-  fees                  Fee[]
+  invoices              FeeInvoice[]
+  transactions          PaymentTransaction[]
+  waivers               StudentWaiver[]
   admissionApplication  AdmissionApplication?
 
   @@index([departmentId])
@@ -52,6 +55,10 @@ model AdmissionApplication {
   id                  String   @id @default(uuid())
   studentId           String   @unique
   student             StudentProfile @relation(fields: [studentId], references: [id])
+  status              ApplicationStatus @default(SUBMITTED)
+  reviewedById        String?  // User.id of the admin who approved/rejected
+  reviewedAt          DateTime?
+  rejectionReason     String?
   previousInstitution String
   sscBoard            String?
   sscYear             Int?
@@ -62,20 +69,10 @@ model AdmissionApplication {
   guardianOccupation  String?
   presentAddress      String?
   permanentAddress    String?
-  // Review pipeline: PENDING → APPROVED / REJECTED (admin).
-  status          AdmissionStatus @default(PENDING)
-  reviewNote      String?
-  reviewedBy      String?
-  reviewedAt      DateTime?
-  // Optional admission test result (admin records it).
-  testDate        DateTime?
-  testScore       Float?
-  // Application-fee snapshot + student-paid TrxID (manual bKash verify).
-  applicationFeeAmount Float?
-  applicationFeeTrxId  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
+  @@index([status])
   @@map("admission_applications")
 }
 

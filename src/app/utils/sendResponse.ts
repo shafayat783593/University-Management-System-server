@@ -5,6 +5,8 @@ type TMeta = {
 	limit: number;
 	total: number;
 	totalPages: number;
+	// Extra totals some reports attach (e.g. /invoices/reports/outstanding).
+	totalOutstanding?: number;
 };
 
 type TResponseData<T> = {

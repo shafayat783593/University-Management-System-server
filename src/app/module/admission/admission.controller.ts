@@ -46,7 +46,7 @@ const listApplications = catchAsync(async (req, res) => {
 const reviewApplication = catchAsync(async (req, res) => {
 	const result = await AdmissionService.reviewApplication(
 		req.user?.userId as string,
-		req.params.id,
+		(req.params.id as string),
 		req.body,
 	);
 	sendResponse(res, {

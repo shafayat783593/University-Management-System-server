@@ -54,7 +54,7 @@ const upsertPolicy = async (payload: {
 
 // Billable credits = ENROLLED enrollments only (dropped/withdrawn don't count,
 // and the enrollment service already blocks duplicate-course enrollments).
-const billableCredits = async (studentId: string, semesterId: string) => {
+export const billableCredits = async (studentId: string, semesterId: string) => {
 	const rows = await prisma.enrollment.findMany({
 		where: { studentId, status: "ENROLLED", section: { semesterId } },
 		include: { section: { include: { course: true } } },
@@ -319,7 +319,7 @@ const setAdmissionFeeSetting = async (
 	return prisma.systemSetting.update({ where: { id: existing.id }, data });
 };
 
-export const InvoiceService = {
+export const FeeBillingService = {
 	getPolicy,
 	upsertPolicy,
 	generateFromPolicy,

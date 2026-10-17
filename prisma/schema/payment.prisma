@@ -1,138 +1,257 @@
-model Fee {
-  id          String    @id @default(uuid())
-  studentId   String
-  student     StudentProfile @relation(fields: [studentId], references: [id])
-  semesterId  String?        // null for an ADMISSION fee — it isn't tied to any one semester
-  semester    Semester?      @relation(fields: [semesterId], references: [id])
-  type        FeeType   @default(TUITION)
-  // Final payable = subtotal - discountAmount + adjustmentAmount.
-  // `amount` is the snapshot — never recalculated after issue, except
-  // through the authorized adjustment endpoint (which rewrites it once).
-  amount           Float
-  subtotal         Float     @default(0)
-  discountAmount   Float     @default(0)
-  adjustmentAmount Float     @default(0)
-  status      FeeStatus @default(PENDING)
-  dueDate     DateTime?
-  // Human-readable invoice number, set for every newly issued invoice.
-  // Nullable so pre-existing rows stay valid; all new rows get one.
-  invoiceNo   String?   @unique
-  notes       String?
-  cancelledAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+// =====================================================================
+// Billing: policies -> invoices -> items/adjustments -> installments
+//          -> transactions -> allocations -> refunds
+// Money is Decimal(12,2). All balances are computed/stored server-side.
+// =====================================================================
 
-  installments Installment[] // every Fee has >= 1 (ADMISSION and single-payment TUITION get exactly one)
-  items        InvoiceItem[]  // priced snapshot of what the invoice charges for
-
-  // Only meaningful for TUITION rows — Postgres doesn't treat two NULL
-  // semesterIds as equal, so this constraint can't stop duplicate
-  // ADMISSION fees by itself; that's enforced in admission.service.ts
-  // with a check before create instead.
-  @@unique([studentId, semesterId])
-  @@index([studentId])
-  @@index([semesterId])
-  @@index([type])
-  @@index([status])
-  @@map("fees")
-}
-
-// One priced line of an invoice — the snapshot that stays frozen even
-// when fee policies change later.
-model InvoiceItem {
-  id     String          @id @default(uuid())
-  feeId  String
-  fee    Fee             @relation(fields: [feeId], references: [id], onDelete: Cascade)
-  label  String          // e.g. "Tuition (12 credits × ৳4,500)"
-  kind   InvoiceItemKind @default(OTHER)
-  amount Float
-
-  @@index([feeId])
-  @@map("invoice_items")
-}
-
-// Admin-configured billing policy for one semester. One active policy
-// per semester (semesterId is unique) — invoices snapshot its values,
-// so later policy edits never rewrite already-issued invoices.
+/// Configurable rate card. Resolution order (most specific wins, then latest effectiveFrom):
+/// semester+department > semester > department > global.
 model FeePolicy {
-  id               String    @id @default(uuid())
-  semesterId       String    @unique
-  semester         Semester  @relation(fields: [semesterId], references: [id])
-  perCreditRate    Float     @default(0)
-  registrationFee  Float     @default(0)
-  labFee           Float     @default(0)
-  examFee          Float     @default(0)
-  libraryFee       Float     @default(0)
-  otherFee         Float     @default(0)
-  otherLabel       String?
-  installmentCount Int       @default(1)
-  firstDueDate     DateTime?
-  graceDays        Int       @default(0)
-  lateFeeAmount    Float     @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id            String        @id @default(uuid())
+  name          String
+  invoiceType   InvoiceType   // which invoice this item is billed on
+  itemType      FeeItemType
+  calcMethod    FeeCalcMethod @default(FLAT)
+  amount        Decimal       @db.Decimal(12, 2) // flat amount, or per-credit rate
+  isRefundable  Boolean       @default(false)    // e.g. caution deposit
+  departmentId  String?
+  department    Department?   @relation(fields: [departmentId], references: [id])
+  semesterId    String?
+  semester      Semester?     @relation(fields: [semesterId], references: [id])
+  effectiveFrom DateTime      @default(now())
+  effectiveTo   DateTime?
+  isActive      Boolean       @default(true)
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
+  @@index([invoiceType, itemType, isActive])
+  @@index([departmentId])
+  @@index([semesterId])
   @@map("fee_policies")
 }
 
+/// How a SEMESTER invoice is split. semesterId = null marks the default policy.
+model InstallmentPolicy {
+  id                  String      @id @default(uuid())
+  name                String
+  semesterId          String?     @unique
+  semester            Semester?   @relation(fields: [semesterId], references: [id])
+  isDefault           Boolean     @default(false)
+  installmentCount    Int         @default(1)
+  advanceType         AdvanceType @default(NONE) // fixed advance = installment #1
+  advanceValue        Decimal?    @db.Decimal(12, 2)
+  customPercents      Json?       // e.g. [40,20,20,20]; must sum to 100; overrides advance + equal split
+  intervalMonths      Int         @default(1)
+  firstDueDate        DateTime?   // else issueDate + firstDueOffsetDays
+  firstDueOffsetDays  Int         @default(7)
+  graceDays           Int         @default(0)
+  lateFeeType         LateFeeType @default(NONE)
+  lateFeeValue        Decimal     @default(0) @db.Decimal(12, 2)
+  allowPartialPayment Boolean     @default(false)
+  restrictOnOverdue   Boolean     @default(true) // overdue blocks enrollment/result access
+  isActive            Boolean     @default(true)
+  createdById         String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([isDefault, isActive])
+  @@map("installment_policies")
+}
+
+/// Scholarship / waiver / discount applied automatically to TUITION when a semester invoice is generated.
+model StudentWaiver {
+  id          String         @id @default(uuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id])
+  semesterId  String?        // null = every semester while active
+  semester    Semester?      @relation(fields: [semesterId], references: [id])
+  type        AdjustmentType // WAIVER | SCHOLARSHIP | DISCOUNT
+  name        String
+  percent     Decimal?       @db.Decimal(5, 2)
+  fixedAmount Decimal?       @db.Decimal(12, 2)
+  validFrom   DateTime       @default(now())
+  validTo     DateTime?
+  isActive    Boolean        @default(true)
+  reason      String?
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([studentId, isActive])
+  @@map("student_waivers")
+}
+
+model FeeInvoice {
+  id             String         @id @default(uuid())
+  invoiceNumber  String         @unique
+  type           InvoiceType
+  studentId      String
+  student        StudentProfile @relation(fields: [studentId], references: [id])
+  semesterId     String?        // null for APPLICATION / ADMISSION
+  semester       Semester?      @relation(fields: [semesterId], references: [id])
+  status         InvoiceStatus  @default(UNPAID)
+  subtotal       Decimal        @db.Decimal(12, 2) // sum of items
+  discountTotal  Decimal        @default(0) @db.Decimal(12, 2) // positive number: waivers/scholarships/discounts
+  adjustmentTotal Decimal       @default(0) @db.Decimal(12, 2) // signed: manual adjustments + late fees
+  payableAmount  Decimal        @db.Decimal(12, 2) // subtotal - discountTotal + adjustmentTotal
+  paidAmount     Decimal        @default(0) @db.Decimal(12, 2) // sum of SUCCESS allocations net of refunds
+  refundedAmount Decimal        @default(0) @db.Decimal(12, 2) // lifetime refunds, reporting only
+  billedCredits  Int            @default(0)  // tuition credits billed (supplementary invoices bill the delta)
+  issueDate      DateTime       @default(now())
+  dueDate        DateTime
+  policySnapshot Json           // rates + installment plan used; never recomputed
+  cancelledAt    DateTime?
+  cancelReason   String?
+  createdById    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  items        InvoiceItem[]
+  adjustments  InvoiceAdjustment[]
+  installments Installment[]
+  transactions PaymentTransaction[]
+
+  @@index([studentId])
+  @@index([semesterId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([type, studentId])
+  @@map("fee_invoices")
+}
+
+model InvoiceItem {
+  id           String      @id @default(uuid())
+  invoiceId    String
+  invoice      FeeInvoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemType     FeeItemType
+  description  String
+  quantity     Decimal     @default(1) @db.Decimal(8, 2)   // credits for per-credit items
+  unitAmount   Decimal     @db.Decimal(12, 2)              // snapshot of the rate
+  amount       Decimal     @db.Decimal(12, 2)              // quantity x unitAmount
+  isRefundable Boolean     @default(false)
+  policyId     String?     // informational only, no FK: policies may be edited/deleted later
+  createdAt    DateTime    @default(now())
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model InvoiceAdjustment {
+  id            String         @id @default(uuid())
+  invoiceId     String
+  invoice       FeeInvoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  type          AdjustmentType
+  amount        Decimal        @db.Decimal(12, 2) // signed: negative reduces what the student owes
+  reason        String
+  installmentId String?        // LATE_FEE only: the installment that triggered it
+  createdById   String?
+  createdAt     DateTime       @default(now())
+
+  // one late fee per installment — makes the late-fee job idempotent
+  @@unique([installmentId, type])
+  @@index([invoiceId])
+  @@map("invoice_adjustments")
+}
+
 model Installment {
-  id        String    @id @default(uuid())
-  feeId     String
-  fee       Fee       @relation(fields: [feeId], references: [id], onDelete: Cascade)
-  number    Int       // 1-based position: "Installment 2 of 4"
-  amount    Float
-  dueDate   DateTime
-  status    FeeStatus @default(PENDING) // overdue = PENDING && dueDate < now (derived, no stored status)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id          String            @id @default(uuid())
+  invoiceId   String
+  invoice     FeeInvoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  number      Int               // 1-based
+  amount      Decimal           @db.Decimal(12, 2)
+  paidAmount  Decimal           @default(0) @db.Decimal(12, 2)
+  dueDate     DateTime
+  status      InstallmentStatus @default(PENDING) // stored: PENDING | PARTIALLY_PAID | PAID
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
-  payment Payment?
+  allocations PaymentAllocation[]
 
-  @@unique([feeId, number])
-  @@index([feeId])
+  @@unique([invoiceId, number])
+  @@index([invoiceId])
   @@index([status, dueDate])
   @@map("installments")
 }
 
-model SystemSetting {
-  id                 String   @id @default(uuid())
-  // One-time admission fee invoiced on application APPROVAL (null = not configured).
-  admissionFeeAmount Float?
-  // Pay at once (1) or in monthly installments.
-  admissionInstallmentCount Int @default(1)
-  // Form-submission fee, verified manually via the student's bKash TrxID.
-  applicationFeeAmount Float?
-  updatedAt          DateTime @updatedAt
+model PaymentTransaction {
+  id               String            @id @default(uuid())
+  invoiceId        String
+  invoice          FeeInvoice        @relation(fields: [invoiceId], references: [id])
+  studentId        String
+  student          StudentProfile    @relation(fields: [studentId], references: [id])
+  gateway          String            @default("BKASH")
+  gatewayPaymentId String            @unique // bKash paymentID, stored at init — the callback lookup key
+  gatewayTrxId     String?           @unique // bKash trxID, only after a verified success
+  amount           Decimal           @db.Decimal(12, 2)
+  currency         String            @default("BDT")
+  status           TransactionStatus @default(INITIATED)
+  excessAmount     Decimal           @default(0) @db.Decimal(12, 2) // captured but not allocatable (overpayment race) -> refund
+  refundedAmount   Decimal           @default(0) @db.Decimal(12, 2)
+  receiptNumber    String?           @unique
+  gatewayResponse  Json?
+  failureReason    String?
+  initiatedAt      DateTime          @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  @@map("system_settings")
+  allocations PaymentAllocation[]
+  refunds     Refund[]
+
+  @@index([invoiceId])
+  @@index([studentId])
+  @@index([status])
+  @@map("payment_transactions")
 }
 
-model Payment {
-  id              String        @id @default(uuid())
-  installmentId   String        @unique
-  installment     Installment   @relation(fields: [installmentId], references: [id])
-  paymentId       String        @unique // bKash paymentID — set at init time, the durable lookup key for the callback
-  trxId           String?       @unique // bKash trxID — only set after a successful execute
-  amount          Float
-  status          PaymentStatus @default(PENDING)
-  gatewayResponse Json?
-  paidAt          DateTime?
-  refundTrxId     String?
-  refundAt        DateTime?
-  refundAmount    Float?
-  reason          String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+model PaymentAllocation {
+  id            String             @id @default(uuid())
+  transactionId String
+  transaction   PaymentTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  installmentId String
+  installment   Installment        @relation(fields: [installmentId], references: [id])
+  amount        Decimal            @db.Decimal(12, 2) // reduced when a refund reverses it
+  createdAt     DateTime           @default(now())
 
-  @@map("payments")
-  @@index([status])
+  @@unique([transactionId, installmentId])
+  @@index([installmentId])
+  @@map("payment_allocations")
+}
+
+model Refund {
+  id               String             @id @default(uuid())
+  transactionId    String
+  transaction      PaymentTransaction @relation(fields: [transactionId], references: [id])
+  amount           Decimal            @db.Decimal(12, 2)
+  reason           String
+  reverseCharge    Boolean            @default(true) // false = money returned (e.g. caution deposit) without reopening the student's balance
+  status           RefundStatus       @default(PENDING)
+  gatewayRefundTrxId String?          @unique
+  gatewayResponse  Json?
+  requestedById    String             // User.id
+  createdAt        DateTime           @default(now())
+  completedAt      DateTime?
+
+  @@index([transactionId])
+  @@map("refunds")
+}
+
+/// Single row. Admission policy switches live here; amounts live in FeePolicy.
+model SystemSetting {
+  id                                String   @id @default(uuid())
+  applicationFeeRequired            Boolean  @default(false) // must pay APPLICATION invoice before submitting the application
+  admissionPaymentRequiredToEnroll  Boolean  @default(true)  // ADMISSION invoice must be PAID before enrolling
+  updatedAt                         DateTime @updatedAt
+
+  @@map("system_settings")
 }
 
 model AuditLog {
   id         String   @id @default(uuid())
   actorId    String   // User.id of whoever performed the action
-  action     String   // e.g. "RESULT_OVERRIDE", "LATE_DROP"
-  targetType String   // e.g. "Result", "Enrollment"
+  action     String   // e.g. "RESULT_OVERRIDE", "INVOICE_CANCELLED"
+  targetType String   // e.g. "Result", "FeeInvoice"
   targetId   String
   oldValue   Json?
   newValue   Json?
@@ -142,4 +261,3 @@ model AuditLog {
   @@index([targetType, targetId])
   @@map("audit_logs")
 }
-

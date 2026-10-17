@@ -1,6 +1,3 @@
-
-
-
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, {
@@ -27,7 +24,10 @@ import { ExamRoutes } from "./app/module/exam/exam.route.js";
 import { ResultRoutes } from "./app/module/result/result.route.js";
 import { TranscriptRoutes } from "./app/module/transcript/transcript.route.js";
 import { AttendanceRoutes } from "./app/module/attendance/attendance.route.js";
-import { FeeRoutes } from "./app/module/Fee/free.route.js";
+import { FeePolicyRoutes } from "./app/module/feePolicy/feePolicy.route.js";
+import { InvoiceRoutes } from "./app/module/invoice/invoice.route.js";
+import { WaiverRoutes } from "./app/module/waiver/waiver.route.js";
+import { SettingRoutes } from "./app/module/setting/setting.route.js";
 import { InstructorRoutes } from "./app/module/Instructor/Instructor.route.js";
 import { AnnouncementRoutes } from "./app/module/announcement/announcement.route.js";
 import { PublicRoutes } from "./app/module/public/public.route.js";
@@ -83,7 +83,10 @@ app.use("/api/v1/enrollments", EnrollmentRoutes);
 app.use("/api/v1/attendance", AttendanceRoutes);
 app.use("/api/v1/exams", ExamRoutes);
 app.use("/api/v1/results", ResultRoutes);
-app.use("/api/v1/fees", FeeRoutes);
+app.use("/api/v1/fee-policies", FeePolicyRoutes);
+app.use("/api/v1/waiversbe", WaiverRoutes);
+app.use("/api/v1/invoices", InvoiceRoutes);
+app.use("/api/v1/settings", SettingRoutes);
 app.use("/api/v1/payments", PaymentRoutes);
 app.use("/api/v1/transcript", TranscriptRoutes);
 app.use("/api/v1/announcements", AnnouncementRoutes);
