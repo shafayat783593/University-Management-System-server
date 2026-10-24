@@ -100,6 +100,12 @@ const LABELS: Record<string, string> = {
  *
  * `onlyTuition` is for supplementary invoices (credits added after the first
  * invoice): registration/lab/exam/library are NOT charged a second time.
+ *
+ * `itemTypes` selects by ITEM type instead of invoice type — used by the ID
+ * card invoice, which is billed on the ID_CARD item of the rate card
+ * regardless of which invoice type the admin attached the policy to.
+ * `excludeItemTypes` keeps an item off a given invoice; the admission
+ * invoice excludes ID_CARD so the card is never charged twice.
  */
 export const buildInvoiceItems = (
 	policies: IPolicyLike[],
@@ -108,10 +114,16 @@ export const buildInvoiceItems = (
 		ctx: IPolicyContext;
 		credits?: number;
 		onlyTuition?: boolean;
+		itemTypes?: string[];
+		excludeItemTypes?: string[];
 	},
 ): IInvoiceItemDraft[] => {
-	const scoped = policies.filter((p) => p.invoiceType === params.invoiceType);
-	const types = [...new Set(scoped.map((p) => p.itemType))];
+	const scoped = params.itemTypes
+		? policies.filter((p) => params.itemTypes!.includes(p.itemType))
+		: policies.filter((p) => p.invoiceType === params.invoiceType);
+	const types = [...new Set(scoped.map((p) => p.itemType))].filter(
+		(t) => !params.excludeItemTypes?.includes(t),
+	);
 	const items: IInvoiceItemDraft[] = [];
 
 	for (const itemType of types) {
@@ -452,6 +464,36 @@ export const deriveInvoiceStatus = (
 
 export const outstandingMinor = (payableMinor: number, paidMinor: number): number =>
 	Math.max(payableMinor - paidMinor, 0);
+
+// ---------- admission gate ----------
+
+export interface IAdmissionGateInput {
+	/** SystemSetting.admissionPaymentRequiredToEnroll, read LIVE at gate time. */
+	paymentRequired: boolean;
+	/** Live status of the student's ADMISSION invoice, or null when none exists. */
+	invoiceStatus: string | null;
+}
+
+/**
+ * Whether the admission payment requirement is satisfied.
+ *
+ * The flag is read live, never snapshotted at approve time, and a live unpaid
+ * ADMISSION invoice blocks even when admissionConfirmedAt is already set —
+ * otherwise a flag that was off at approval time would hand out a confirmed
+ * admission + Student ID for free, and toggling it later would never take it
+ * back.
+ *
+ * A CANCELLED invoice (or no invoice at all) carries no obligation; the
+ * caller still enforces the separate "is admission confirmed?" check.
+ */
+export const isAdmissionPaymentSettled = ({
+	paymentRequired,
+	invoiceStatus,
+}: IAdmissionGateInput): boolean => {
+	if (!paymentRequired) return true;
+	if (invoiceStatus === null || invoiceStatus === "CANCELLED") return true;
+	return invoiceStatus === "PAID";
+};
 
 export const computeLateFee = (
 	remainingMinor: number,

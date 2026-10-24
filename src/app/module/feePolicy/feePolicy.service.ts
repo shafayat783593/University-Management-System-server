@@ -47,6 +47,7 @@ const  listFeePolicies = async (query: FeePolicyFilters) => {
 	const fees = await prisma.feePolicy.findMany({
 		where: {
 			invoiceType: query.invoiceType as any,
+			itemType: query.itemType as any,
 			departmentId: query.departmentId,
 			semesterId: query.semesterId,
 			isActive: query.activeOnly === "true" ? true : undefined,

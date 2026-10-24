@@ -74,6 +74,10 @@ router.patch(
 	validateRequest(AuthValidation.updateStudentProfileZodSchema),
 	AuthController.updateStudentProfile,
 );
+// ID card. The status endpoint tells the student whether the card can be
+// downloaded (admission confirmed + ID card fee settled) and what is still
+// missing from their profile.
+router.get("/id-card/status", auth(Role.STUDENT), AuthController.getIdCardStatus);
 router.get("/id-card", auth(Role.STUDENT), requireNoDues, AuthController.downloadIdCard);
 router.post("/logout", AuthController.logout)
 

@@ -90,6 +90,29 @@ const createEnrollment = async (
 		);
 	}
 
+	// A semester being OPEN does not mean the enrollment window is open —
+	// enrollmentStart/enrollmentEnd narrow it further. Each bound is optional;
+	// null means "unbounded on that side".
+	const { enrollmentStart, enrollmentEnd } = section.semester;
+	const day = (d: Date) => d.toISOString().slice(0, 10);
+	const window =
+		enrollmentStart || enrollmentEnd
+			? ` (enrollment window: ${day(enrollmentStart ?? enrollmentEnd!)} to ${day(enrollmentEnd ?? enrollmentStart!)})`
+			: "";
+	const now = new Date();
+	if (enrollmentStart && now < enrollmentStart) {
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			`Enrollment is not open for this semester — it opens on ${day(enrollmentStart)}${window}`,
+		);
+	}
+	if (enrollmentEnd && now > enrollmentEnd) {
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			`Enrollment is not open for this semester — it closed on ${day(enrollmentEnd)}${window}`,
+		);
+	}
+
 	const existing = await prisma.enrollment.findUnique({
 		where: {
 			studentId_sectionId: { studentId: student.id, sectionId: section.id },

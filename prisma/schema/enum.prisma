@@ -84,6 +84,7 @@ enum InvoiceType {
   APPLICATION
   ADMISSION
   SEMESTER
+  ID_CARD // one-off ID card charge; billed on its own invoice, never bundled
 }
 
 enum InvoiceStatus {

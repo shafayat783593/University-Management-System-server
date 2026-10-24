@@ -206,9 +206,14 @@ const listApplications = async (query: IQuary) => {
 /**
  * Admin decision. APPROVED issues the ADMISSION invoice (admission charge,
  * ID card fee, refundable caution deposit — whatever the active fee policies
- * define; the application fee is never re-charged). Admission is confirmed
- * immediately when there is nothing to pay or the policy doesn't require
- * payment first; otherwise confirmation happens when the invoice is verified PAID.
+ * define; the application fee is never re-charged).
+ *
+ * Confirmation policy:
+ *  - admissionPaymentRequiredToEnroll OFF -> confirm at approve time.
+ *  - flag ON -> confirm ONLY once the admission invoice is PAID, which
+ *    payment.service does on payment success. Approving never confirms.
+ *  - flag ON but no ADMISSION fee is configured -> refuse (409) rather than
+ *    hand out a free admission.
  */
 const reviewApplication = async (
 	actorId: string,
@@ -224,6 +229,38 @@ const reviewApplication = async (
 			httpStatus.CONFLICT,
 			`Application was already ${application.status.toLowerCase()}`,
 		);
+	}
+
+	const approving = payload.status === "APPROVED";
+	const setting = approving ? await prisma.systemSetting.findFirst() : null;
+	const paymentRequired = setting ? setting.admissionPaymentRequiredToEnroll : true;
+
+	// Checked BEFORE the status flip so a misconfigured fee setup cannot leave
+	// an APPROVED application the admin can never re-approve.
+	if (approving && paymentRequired) {
+		const student = await prisma.studentProfile.findUnique({
+			where: { id: application.studentId },
+			select: { departmentId: true },
+		});
+		const existing = await prisma.feeInvoice.findFirst({
+			where: {
+				studentId: application.studentId,
+				type: InvoiceType.ADMISSION,
+				status: { not: InvoiceStatus.CANCELLED },
+			},
+			select: { id: true },
+		});
+		if (!existing) {
+			const lines = student
+				? await getFeeSchedule(prisma, InvoiceType.ADMISSION, student.departmentId, null)
+				: [];
+			if (lines.length === 0) {
+				throw new AppError(
+					httpStatus.CONFLICT,
+					"Admission fee is not configured. Create an ADMISSION fee policy before approving applications.",
+				);
+			}
+		}
 	}
 
 	// status flip is conditional so two admins can't both review the same application
@@ -243,12 +280,33 @@ const reviewApplication = async (
 	let admissionInvoice = null;
 	let confirmed = false;
 
-	if (payload.status === "APPROVED") {
+	if (approving) {
 		admissionInvoice = await InvoiceService.createAdmissionInvoice(application.studentId, actorId);
-		const setting = await prisma.systemSetting.findFirst();
-		const paymentRequired = setting ? setting.admissionPaymentRequiredToEnroll : true;
 
-		if (!admissionInvoice || !paymentRequired) {
+		// createAdmissionInvoice returns null both when an invoice already
+		// exists and when no fee policy matches — resolve which it was so a
+		// live unpaid invoice is never mistaken for "nothing to pay".
+		const existingInvoice =
+			admissionInvoice ??
+			(await prisma.feeInvoice.findFirst({
+				where: {
+					studentId: application.studentId,
+					type: InvoiceType.ADMISSION,
+					status: { not: InvoiceStatus.CANCELLED },
+				},
+				select: { id: true },
+			}));
+
+		// No invoice at all (fee not configured, or already paid/cancelled)
+		// -> confirm now. An invoice that still owes money -> wait for payment.
+		const outstanding = existingInvoice
+			? await prisma.feeInvoice.findFirst({
+					where: { id: existingInvoice.id, status: { not: InvoiceStatus.PAID } },
+					select: { id: true },
+				})
+			: null;
+
+		if (!outstanding || !paymentRequired) {
 			const res = await prisma.$transaction((tx) => confirmAdmission(tx, application.studentId));
 			confirmed = res.newlyConfirmed;
 			if (confirmed) void sendAdmissionConfirmedEmail(application.studentId);

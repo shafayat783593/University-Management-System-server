@@ -137,7 +137,7 @@ const generateTranscriptPdf = async (data: ITranscriptPdfData): Promise<Buffer> 
 					? `Grade point ${course.gradePoint.toFixed(2)}`
 					: "Pending (unpublished result)";
 			doc.text(
-				`  ${course.courseCode}  —  ${course.creditHours} credit hour(s)  —  ${status}`,
+				`  ${course.courseCode}  -  ${course.creditHours} credit hour(s)  -  ${status}`,
 			);
 		}
 
@@ -164,31 +164,119 @@ const generateTranscriptPdf = async (data: ITranscriptPdfData): Promise<Buffer> 
 	return bufferPromise;
 };
 
-interface IStudentIdCardData {
+export interface IStudentIdCardData {
 	studentName: string;
 	studentIdCode: string;
 	departmentName: string;
+	departmentCode?: string | null;
 	imageUrl?: string | null;
 	issuedDate: string;
+	validUntil: string;
+	session?: string | null;
+	dateOfBirth?: string | null;
+	bloodGroup?: string | null;
+	guardianName?: string | null;
+	address?: string | null;
+	universityName?: string | null;
 }
 
+/** Colour-coded blood group badge - instantly readable at a glance. */
+const BLOOD_COLORS: Record<string, string> = {
+	A: "#DC2626",
+	B: "#2563EB",
+	AB: "#7C3AED",
+	O: "#059669",
+};
+
+const bloodColor = (bloodGroup?: string | null): string => {
+	const key = (bloodGroup ?? "").trim().toUpperCase().replace(/[+\-]/g, "");
+	return BLOOD_COLORS[key] ?? "#475569";
+};
+
 /**
- * Credit-card-sized (3.375" x 2.125" = 243 x 153 points) PDF. The QR
- * code is a new dependency (`qrcode`) — not previously in the project.
+ * pdfkit's built-in fonts (Helvetica) are WinAnsi (cp1252) only. Anything
+ * outside that range is written out as raw UTF-8 bytes and comes back as
+ * mojibake ("—" renders as "aEUR""). Map the common typographic characters
+ * to ASCII so user-supplied names and addresses stay readable.
  */
-const generateStudentIdCardPdf = async (
+const toWinAnsi = (text: string): string =>
+	text
+		.replace(/[\u2018\u2019]/g, "'")
+		.replace(/[\u201C\u201D]/g, '"')
+		.replace(/[\u2013\u2014]/g, "-")
+		.replace(/\u2022/g, "-")
+		.replace(/\u2026/g, "...");
+
+const CARD_W = 330;
+const CARD_H = 228;
+const INDIGO = "#4338CA";
+const INK = "#0F172A";
+const MUTED = "#64748B";
+
+/**
+ * Student ID card.
+ *
+ * ID-card proportions (330 x 228 pt) - slightly larger than a CR80 so every
+ * field stays legible: photo, name, student ID, department, session, date of
+ * birth, blood group (colour-coded), guardian, address, issue/expiry dates
+ * and a QR code encoding the student ID.
+ *
+ * Long values use a label above the value (not "Label: value" on one line) -
+ * a department name like "Computer Science & Engineering" would otherwise
+ * wrap and collide with the row below it.
+ */
+export const generateStudentIdCardPdf = async (
 	data: IStudentIdCardData,
 ): Promise<Buffer> => {
-	const doc = new PDFDocument({ size: [243, 153], margin: 0 });
+	const doc = new PDFDocument({ size: [CARD_W, CARD_H], margin: 0 });
 	const bufferPromise = streamToBuffer(doc);
 
-	doc.rect(0, 0, 243, 153).fill("#0f172a");
-	doc.rect(0, 0, 243, 28).fill("#4338CA");
+	/* ---------------- background + header band ---------------- */
+	doc.roundedRect(0, 0, CARD_W, CARD_H, 10).fill("#FFFFFF");
+	// Rounded top corners for the band, squared off at the bottom.
+	doc.roundedRect(0, 0, CARD_W, 44, 10).fill(INDIGO);
+	doc.rect(0, 30, CARD_W, 14).fill(INDIGO);
+	doc.rect(0, 44, CARD_W, 2.5).fill("#F59E0B");
+
 	doc
-		.fillColor("white")
+		.fillColor("#FFFFFF")
 		.font("Helvetica-Bold")
 		.fontSize(10)
-		.text("UNIVERSITY MANAGEMENT SYSTEM", 10, 10, { width: 223 });
+		.text(toWinAnsi(data.universityName ?? "University Management System"), 14, 10, {
+			width: 210,
+		});
+	doc
+		.font("Helvetica-Bold")
+		.fontSize(7.5)
+		.fillColor("#C7D2FE")
+		.text("STUDENT ID CARD", 200, 12, { width: 116, align: "right" });
+	doc
+		.font("Helvetica")
+		.fontSize(6.5)
+		.fillColor("#A5B4FC")
+		.text("Identity Document - Non-transferable", 14, 23, { width: 210 });
+
+	/* ---------------- shared field helpers ---------------- */
+	const label = (text: string, x: number, y: number, w: number) => {
+		doc
+			.fillColor(MUTED)
+			.font("Helvetica")
+			.fontSize(5.8)
+			.text(text, x, y, { width: w, characterSpacing: 0.6 });
+	};
+	const value = (text: string, x: number, y: number, w: number) => {
+		doc
+			.fillColor(INK)
+			.font("Helvetica-Bold")
+			.fontSize(8.5)
+			.text(toWinAnsi(text), x, y, { width: w, height: 11, ellipsis: true });
+	};
+
+	/* ---------------- photo ---------------- */
+	const photoX = 14;
+	const photoY = 54;
+	const photoW = 66;
+	const photoH = 88;
 
 	let photoBuffer: Buffer | null = null;
 	if (data.imageUrl) {
@@ -196,43 +284,129 @@ const generateStudentIdCardPdf = async (
 			const response = await fetch(data.imageUrl);
 			photoBuffer = Buffer.from(await response.arrayBuffer());
 		} catch {
-			photoBuffer = null; // fall through to the placeholder box below
+			photoBuffer = null; // fall through to the placeholder below
 		}
 	}
 
+	doc.roundedRect(photoX - 1, photoY - 1, photoW + 2, photoH + 2, 4).fill("#E2E8F0");
 	if (photoBuffer) {
-		doc.image(photoBuffer, 10, 38, { width: 60, height: 70, fit: [60, 70] });
+		doc.image(photoBuffer, photoX, photoY, {
+			width: photoW,
+			height: photoH,
+			fit: [photoW, photoH],
+			align: "center",
+			valign: "center",
+		});
 	} else {
-		doc.rect(10, 38, 60, 70).fill("#334155");
 		doc
-			.fillColor("#94a3b8")
+			.fillColor("#94A3B8")
+			.font("Helvetica-Bold")
 			.fontSize(8)
-			.text("No Photo", 10, 69, { width: 60, align: "center" });
+			.text("NO PHOTO", photoX, photoY + photoH / 2 - 4, {
+				width: photoW,
+				align: "center",
+			});
 	}
 
-	doc
-		.fillColor("white")
-		.font("Helvetica-Bold")
-		.fontSize(10)
-		.text(data.studentName, 78, 40, { width: 155 });
-	doc.font("Helvetica").fontSize(8).fillColor("#cbd5e1");
-	doc.text(`ID: ${data.studentIdCode}`, 78, 58, { width: 155 });
-	doc.text(`Dept: ${data.departmentName}`, 78, 71, { width: 155 });
-	doc.text(`Issued: ${data.issuedDate}`, 78, 84, { width: 155 });
+	/* ---------------- left column: date of birth + guardian ---------------- */
+	label("DATE OF BIRTH", photoX, 150, 76);
+	value(data.dateOfBirth ?? "-", photoX, 158, 76);
+	label("GUARDIAN", photoX, 174, 76);
+	value(data.guardianName ?? "-", photoX, 182, 76);
 
+	/* ---------------- middle column: name, id, department, session, address ---------------- */
+	const infoX = 98;
+	const infoW = 150;
+
+	doc
+		.fillColor(INK)
+		.font("Helvetica-Bold")
+		.fontSize(13)
+		.text(toWinAnsi(data.studentName), infoX, 54, {
+			width: infoW,
+			height: 32,
+			ellipsis: true,
+		});
+
+	doc
+		.fillColor(INDIGO)
+		.font("Helvetica-Bold")
+		.fontSize(9.5)
+		.text(`ID: ${data.studentIdCode}`, infoX, 88, { width: infoW });
+
+	label("DEPARTMENT", infoX, 106, infoW);
+	value(data.departmentName ?? "-", infoX, 114, infoW);
+
+	label("SESSION", infoX, 132, infoW);
+	value(data.session ?? "-", infoX, 140, infoW);
+
+	label("ADDRESS", infoX, 158, infoW);
+	value(data.address ?? "-", infoX, 166, infoW);
+
+	/* ---------------- blood group badge ---------------- */
+	const badgeX = 250;
+	const badgeY = 54;
+	const badgeW = 66;
+	const badgeH = 32;
+	const accent = bloodColor(data.bloodGroup);
+
+	doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 6).fill("#FFFFFF");
+	doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 6).lineWidth(1.5).stroke(accent);
+	doc
+		.fillColor(MUTED)
+		.font("Helvetica")
+		.fontSize(6)
+		.text("BLOOD GROUP", badgeX + 7, badgeY + 6, { width: badgeW - 14 });
+	doc
+		.fillColor(accent)
+		.font("Helvetica-Bold")
+		.fontSize(15)
+		.text(toWinAnsi((data.bloodGroup ?? "-").toUpperCase()), badgeX + 7, badgeY + 14, {
+			width: badgeW - 14,
+		});
+
+	/* ---------------- QR code ---------------- */
 	const qrDataUrl = await QRCode.toDataURL(data.studentIdCode, {
 		margin: 0,
-		width: 90,
+		width: 160,
 	});
 	const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
-	doc.image(qrBuffer, 175, 98, { width: 48, height: 48 });
-
+	doc.image(qrBuffer, 252, 100, { width: 62, height: 62 });
 	doc
-		.fontSize(6)
-		.fillColor("#64748b")
-		.text("This card is the property of the university.", 10, 138, {
-			width: 223,
+		.fillColor(MUTED)
+		.font("Helvetica")
+		.fontSize(5.8)
+		.text("SCAN TO VERIFY", 246, 164, { width: 74, align: "center" });
+
+	/* ---------------- footer ---------------- */
+	const footY = 206;
+	doc.rect(14, 200, CARD_W - 28, 0.8).fill("#E2E8F0");
+	doc
+		.fillColor(MUTED)
+		.font("Helvetica")
+		.fontSize(6.2)
+		.text(
+			"This card is the property of the University. Loss must be reported immediately.",
+			14,
+			footY,
+			{ width: 180 },
+		);
+	doc
+		.fillColor(MUTED)
+		.font("Helvetica")
+		.fontSize(6.2)
+		.text(`ISSUED ${data.issuedDate}`, 200, footY, { width: 116, align: "right" });
+	doc
+		.fillColor(INK)
+		.font("Helvetica-Bold")
+		.fontSize(6.2)
+		.text(`VALID UNTIL ${data.validUntil}`, 200, footY + 8, {
+			width: 116,
+			align: "right",
 		});
+
+	/* ---------------- outer border ---------------- */
+	doc.roundedRect(0.75, 0.75, CARD_W - 1.5, CARD_H - 1.5, 10).lineWidth(1.5).stroke("#C7D2FE");
 
 	doc.end();
 	return bufferPromise;

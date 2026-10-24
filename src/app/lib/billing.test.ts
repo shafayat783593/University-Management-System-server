@@ -11,6 +11,7 @@ import {
 	deriveInvoiceStatus,
 	effectiveInstallmentStatus,
 	fromMinor,
+	isAdmissionPaymentSettled,
 	makeInvoiceNumber,
 	outstandingMinor,
 	pickPolicy,
@@ -106,6 +107,44 @@ describe("fee calculation", () => {
 		const after = buildInvoiceItems([policy({ calcMethod: "PER_CREDIT", amountMinor: 600000 })], { invoiceType: "SEMESTER", ctx, credits: 10 });
 		expect(sum(before)).toBe(5000000);
 		expect(sum(after)).toBe(6000000);
+	});
+});
+
+describe("id card fee billing", () => {
+	const admissionPolicies = [
+		policy({ invoiceType: "ADMISSION", itemType: "ADMISSION", amountMinor: 500000 }),
+		policy({ invoiceType: "ADMISSION", itemType: "ID_CARD", amountMinor: 10000 }),
+		policy({ invoiceType: "ADMISSION", itemType: "CAUTION_DEPOSIT", amountMinor: 300000 }),
+	];
+
+	it("the admission invoice never carries an ID card fee - it is billed separately", () => {
+		const items = buildInvoiceItems(admissionPolicies, {
+			invoiceType: "ADMISSION",
+			ctx,
+			excludeItemTypes: ["ID_CARD"],
+		});
+		expect(items.map((i) => i.itemType)).toEqual(["ADMISSION", "CAUTION_DEPOSIT"]);
+		expect(sum(items)).toBe(800000);
+	});
+
+	it("without the exclusion the ID card fee would ride on the admission invoice", () => {
+		const items = buildInvoiceItems(admissionPolicies, {
+			invoiceType: "ADMISSION",
+			ctx,
+		});
+		expect(items.map((i) => i.itemType)).toContain("ID_CARD");
+	});
+
+	it("the ID card invoice picks the ID_CARD item whatever invoice type the policy was filed under", () => {
+		const items = buildInvoiceItems(admissionPolicies, {
+			invoiceType: "ID_CARD",
+			ctx,
+			itemTypes: ["ID_CARD"],
+		});
+		expect(items).toHaveLength(1);
+		expect(items[0].itemType).toBe("ID_CARD");
+		expect(items[0].amountMinor).toBe(10000);
+		expect(items[0].description).toBe("ID Card Fee");
 	});
 });
 
@@ -221,5 +260,29 @@ describe("statuses and late fees", () => {
 	});
 	it("invoice numbers look right", () => {
 		expect(makeInvoiceNumber(new Date("2027-03-05"), () => 0)).toBe("INV-202703-AAAAAA");
+	});
+});
+
+describe("admission payment gate", () => {
+	it("blocks a confirmed-but-unpaid admission when the live flag is ON", () => {
+		// The exact bug: admission was confirmed while the flag was OFF, the
+		// admin then turned the flag ON, and the student could still enroll.
+		expect(isAdmissionPaymentSettled({ paymentRequired: true, invoiceStatus: "UNPAID" })).toBe(false);
+		expect(isAdmissionPaymentSettled({ paymentRequired: true, invoiceStatus: "PARTIALLY_PAID" })).toBe(false);
+	});
+
+	it("passes once the admission invoice is PAID", () => {
+		expect(isAdmissionPaymentSettled({ paymentRequired: true, invoiceStatus: "PAID" })).toBe(true);
+	});
+
+	it("flag OFF means payment is not required, whatever the invoice says", () => {
+		for (const status of ["UNPAID", "PARTIALLY_PAID", "PAID", "CANCELLED", null]) {
+			expect(isAdmissionPaymentSettled({ paymentRequired: false, invoiceStatus: status })).toBe(true);
+		}
+	});
+
+	it("a CANCELLED invoice carries no obligation; a missing one defers to the confirmed check", () => {
+		expect(isAdmissionPaymentSettled({ paymentRequired: true, invoiceStatus: "CANCELLED" })).toBe(true);
+		expect(isAdmissionPaymentSettled({ paymentRequired: true, invoiceStatus: null })).toBe(true);
 	});
 });

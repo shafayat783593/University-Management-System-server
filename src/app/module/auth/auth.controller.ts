@@ -168,6 +168,16 @@ const updateStudentProfile = catchAsync(async (req: Request, res: Response) => {
 	});
 });
 
+const getIdCardStatus = catchAsync(async (req: Request, res: Response) => {
+	const user = req.user!;
+	sendResponse(res, {
+		success: true,
+		statusCode: httpStatus.OK,
+		message: "ID card status retrieved",
+		data: await AuthService.getIdCardStatus(user.userId),
+	});
+});
+
 const downloadIdCard = catchAsync(async (req: Request, res: Response) => {
 	const user = req.user!;
 	const { buffer, student } = await AuthService.generateIdCard(user.userId);
@@ -205,6 +215,7 @@ export const AuthController = {
 	changePassword,
 	updateProfileImage,
 	updateStudentProfile,
+	getIdCardStatus,
 	downloadIdCard,
 	logout
 };

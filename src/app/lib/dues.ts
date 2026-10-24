@@ -1,7 +1,11 @@
 import httpStatus from "http-status";
-import { InstallmentStatus, InvoiceStatus } from "../../generated/prisma/enums.js";
+import {
+	InstallmentStatus,
+	InvoiceStatus,
+	InvoiceType,
+} from "../../generated/prisma/enums.js";
 import { AppError } from "../utils/AppError.js";
-import { isInstallmentOverdue, toMinor } from "./billing.js";
+import { isInstallmentOverdue, isAdmissionPaymentSettled, toMinor } from "./billing.js";
 import { readPlanSnapshot } from "./invoiceCore.js";
 import { prisma } from "./prisma.js";
 
@@ -68,6 +72,37 @@ export const assertNoOverdueDues = async (studentId: string) => {
 
 /** Enrollment and semester billing need a confirmed admission (and with it, a student ID). */
 export const assertAdmissionConfirmed = async (studentId: string) => {
+	// The payment flag is read LIVE on every call. Reading it only at approve
+	// time made it a snapshot: a student approved while the flag was off kept
+	// a confirmed admission + Student ID forever, and later flipping the flag
+	// on had no effect on them.
+	const setting = await prisma.systemSetting.findFirst();
+	const paymentRequired = setting ? setting.admissionPaymentRequiredToEnroll : true;
+
+	const admissionInvoice = await prisma.feeInvoice.findFirst({
+		where: {
+			studentId,
+			type: InvoiceType.ADMISSION,
+			status: { not: InvoiceStatus.CANCELLED },
+		},
+		select: { status: true },
+		orderBy: { createdAt: "desc" },
+	});
+
+	if (
+		!isAdmissionPaymentSettled({
+			paymentRequired,
+			invoiceStatus: admissionInvoice?.status ?? null,
+		})
+	) {
+		// Checked BEFORE the admissionConfirmedAt shortcut on purpose: a
+		// confirmed-but-unpaid admission must not be able to enroll.
+		throw new AppError(
+			httpStatus.FORBIDDEN,
+			"Pay your admission invoice to confirm your admission",
+		);
+	}
+
 	const student = await prisma.studentProfile.findUnique({
 		where: { id: studentId },
 		select: { admissionConfirmedAt: true },

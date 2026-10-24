@@ -3,7 +3,7 @@ import httpStatus from "http-status";
 import crypto from "crypto";
 import path from "path";
 import ejs from "ejs";
-import { format } from "date-fns";
+import { format, addYears } from "date-fns";
 import type { SignOptions, JwtPayload } from "jsonwebtoken";
 
 
@@ -30,6 +30,7 @@ import { redisClient } from "../../lib/redis.js";
 import { transporter } from "../../lib/nodmailer.js";
 import { googleClient } from "../../lib/googleAuth.js";
 import { cloudinary } from "../../lib/cloudinary.js";
+import { assertIdCardFeePaid, getIdCardFeeState } from "../../lib/idcard.js";
 import { pdfGenerator } from "../result/pdf.js";
 
 const OTP_TTL_SECONDS = 5 * 60;
@@ -475,6 +476,67 @@ const updateStudentProfile = async (
 	});
 };
 
+/**
+ * The admission session is encoded in the student ID itself:
+ * CSE-26-0002 -> 2026. Falls back to the year admission was confirmed.
+ */
+const sessionFromStudent = (student: {
+	studentIdCode: string | null;
+	admissionConfirmedAt: Date | null;
+}): string | null => {
+	const match = /-(\d{2})-\d+$/.exec(student.studentIdCode ?? "");
+	if (match) {
+		const yy = Number(match[1]);
+		return `${2000 + yy}`;
+	}
+	return student.admissionConfirmedAt ? String(student.admissionConfirmedAt.getFullYear()) : null;
+};
+
+const formatDob = (dob: Date | null): string =>
+	dob ? format(dob, "dd MMM yyyy") : "—";
+
+/**
+ * Everything the ID card page needs to render: whether the card can be
+ * downloaded, what is still missing from the profile, and the fee state.
+ */
+const getIdCardStatus = async (userId: string) => {
+	const student = await prisma.studentProfile.findUnique({
+		where: { userId },
+		include: { user: true, department: true },
+	});
+	if (!student) {
+		throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+	}
+
+	const fee = await getIdCardFeeState(student.id, student.departmentId);
+	const admissionConfirmed = !!student.admissionConfirmedAt && !!student.studentIdCode;
+	const setting = await prisma.systemSetting.findFirst();
+
+	const missing: string[] = [];
+	if (!student.dateOfBirth) missing.push("date of birth");
+	if (!student.bloodGroup) missing.push("blood group");
+	if (!student.user.imageUrl) missing.push("photo");
+	if (!student.address) missing.push("address");
+
+	return {
+		admissionConfirmed,
+		studentIdCode: student.studentIdCode,
+		departmentName: student.department.name,
+		universityName: setting?.universityName ?? "University Management System",
+		fee,
+		canDownload: admissionConfirmed && (fee.status === "PAID" || fee.status === "NOT_REQUIRED"),
+		profile: {
+			complete: missing.length === 0,
+			missing,
+			dateOfBirth: student.dateOfBirth,
+			bloodGroup: student.bloodGroup,
+			address: student.address,
+			guardianName: student.guardianName,
+			hasPhoto: !!student.user.imageUrl,
+		},
+	};
+};
+
 const generateIdCard = async (userId: string) => {
 	const student = await prisma.studentProfile.findUnique({
 		where: { userId },
@@ -491,12 +553,29 @@ const generateIdCard = async (userId: string) => {
 		);
 	}
 
+	// The ID card may be chargeable. When a fee policy is active the student
+	// has to pay it before the card is released — read live, so paying the
+	// invoice immediately unlocks the download.
+	await assertIdCardFeePaid(student.id, student.departmentId);
+
+	const setting = await prisma.systemSetting.findFirst();
+	const issuedAt = new Date();
+	const validUntil = addYears(issuedAt, setting?.idCardValidityYears ?? 1);
+
 	const buffer = await pdfGenerator.generateStudentIdCardPdf({
 		studentName: student.user.name,
 		studentIdCode: student.studentIdCode,
 		departmentName: student.department.name,
+		departmentCode: student.department.code,
 		imageUrl: student.user.imageUrl,
-		issuedDate: format(new Date(), "dd MMM yyyy"),
+		issuedDate: format(issuedAt, "dd MMM yyyy"),
+		validUntil: format(validUntil, "dd MMM yyyy"),
+		session: sessionFromStudent(student),
+		dateOfBirth: formatDob(student.dateOfBirth),
+		bloodGroup: student.bloodGroup,
+		guardianName: student.guardianName,
+		address: student.address,
+		universityName: setting?.universityName ?? "University Management System",
 	});
 
 	return { buffer, student };
@@ -515,5 +594,6 @@ export const AuthService = {
 	changePassword,
 	updateProfileImage,
 	updateStudentProfile,
+	getIdCardStatus,
 	generateIdCard,
 };

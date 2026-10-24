@@ -242,6 +242,8 @@ model SystemSetting {
   id                                String   @id @default(uuid())
   applicationFeeRequired            Boolean  @default(false) // must pay APPLICATION invoice before submitting the application
   admissionPaymentRequiredToEnroll  Boolean  @default(true)  // ADMISSION invoice must be PAID before enrolling
+  universityName                    String   @default("University Management System") // printed on the student ID card
+  idCardValidityYears               Int      @default(1)      // how long an ID card stays valid
   updatedAt                         DateTime @updatedAt
 
   @@map("system_settings")

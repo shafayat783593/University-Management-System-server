@@ -4,6 +4,7 @@ import { Prisma } from "../../../generated/prisma/client.js";
 import {
 	AdjustmentType,
 	EnrollmentStatus,
+	FeeItemType,
 	InstallmentStatus,
 	InvoiceStatus,
 	InvoiceType,
@@ -35,6 +36,7 @@ import {
 	SINGLE_PAYMENT_PLAN,
 } from "../../lib/invoiceCore.js";
 import { assertAdmissionConfirmed, getOverdueInstallments } from "../../lib/dues.js";
+import { getIdCardFeeState } from "../../lib/idcard.js";
 import { prisma } from "../../lib/prisma.js";
 import { IQuary } from "../../interface/index.js";
 import { AppError } from "../../utils/AppError.js";
@@ -113,9 +115,11 @@ const createApplicationInvoice = async (userId: string) => {
 };
 
 /**
- * ADMISSION invoice: one-time admission charge, ID card fee, refundable
- * caution deposit, etc. The application fee is NEVER repeated here (it is
- * its own invoice type). Called after the application is submitted.
+ * ADMISSION invoice: one-time admission charge, refundable caution deposit,
+ * etc. The application fee is NEVER repeated here (it is its own invoice
+ * type) and neither is the ID card fee — the card is charged on its own
+ * ID_CARD invoice (createIdCardInvoice) so a student can pay for and
+ * download the card independently of admission.
  * Returns null when no admission fees are configured.
  */
 const createAdmissionInvoice = async (studentId: string, createdById?: string) => {
@@ -134,6 +138,7 @@ const createAdmissionInvoice = async (studentId: string, createdById?: string) =
 		const items = buildInvoiceItems(await loadPolicies(tx), {
 			invoiceType: InvoiceType.ADMISSION,
 			ctx: { departmentId: student.departmentId, semesterId: null, at: new Date() },
+			excludeItemTypes: [FeeItemType.ID_CARD],
 		});
 		if (items.length === 0) return null;
 
@@ -148,6 +153,91 @@ const createAdmissionInvoice = async (studentId: string, createdById?: string) =
 			createdById,
 		});
 	});
+};
+
+/**
+ * ID CARD invoice: the one-off charge for the physical ID card, if the
+ * university has an ID_CARD fee policy. Billed on its own invoice so it is
+ * never bundled with admission (no double charge) and the card can be paid
+ * for independently.
+ *
+ * The items are selected by ITEM type (ID_CARD), not by invoice type, so it
+ * does not matter which invoice type the admin attached the policy to.
+ * Idempotent, and never double-billed: a student who already has an ID card
+ * line item on any invoice (e.g. bundled on an older ADMISSION invoice) is
+ * considered covered and gets no second charge.
+ * Returns null when no ID card fee is configured.
+ */
+const createIdCardInvoice = async (studentId: string, createdById?: string) => {
+	const student = await prisma.studentProfile.findUnique({ where: { id: studentId } });
+	if (!student) throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+
+	return prisma.$transaction(async (tx) => {
+		await advisoryLock(tx, `id-card-invoice:${studentId}`);
+
+		// Already covered — by an existing ID_CARD invoice, or by an ID card
+		// line item bundled onto an older ADMISSION invoice.
+		const alreadyBilled = await tx.feeInvoice.findFirst({
+			where: {
+				studentId,
+				status: { not: InvoiceStatus.CANCELLED },
+				items: { some: { itemType: FeeItemType.ID_CARD } },
+			},
+			select: { id: true },
+		});
+		if (alreadyBilled) return null;
+
+		const items = buildInvoiceItems(await loadPolicies(tx), {
+			invoiceType: InvoiceType.ID_CARD,
+			ctx: { departmentId: student.departmentId, semesterId: null, at: new Date() },
+			itemTypes: [FeeItemType.ID_CARD],
+		});
+		if (items.length === 0) return null;
+
+		return createInvoiceRecord(tx, {
+			type: InvoiceType.ID_CARD,
+			studentId,
+			semesterId: null,
+			items,
+			waivers: [],
+			plan: SINGLE_PAYMENT_PLAN,
+			billedCredits: 0,
+			createdById,
+		});
+	});
+};
+
+/**
+ * Student asks for the ID card invoice. Only makes sense when the university
+ * charges for the card — otherwise there is nothing to pay.
+ * Idempotent: returns the existing invoice instead of billing twice.
+ */
+const requestIdCardInvoice = async (userId: string) => {
+	const student = await prisma.studentProfile.findUnique({ where: { userId } });
+	if (!student) throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+
+	const fee = await getIdCardFeeState(student.id, student.departmentId);
+	if (!fee.required) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			"No ID card fee is configured — your ID card is free, just download it.",
+		);
+	}
+	if (fee.status === "PAID") {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			"You have already paid for your ID card.",
+		);
+	}
+
+	const invoice = await createIdCardInvoice(student.id, userId);
+	if (!invoice) {
+		throw new AppError(
+			httpStatus.CONFLICT,
+			"An ID card invoice already exists — open it from your fees page to pay it.",
+		);
+	}
+	return serializeInvoice({ ...invoice, installments: invoice.installments });
 };
 
 // ---------------------------------------------------------------------------
@@ -766,6 +856,8 @@ const getMyOverdue = async (userId: string) => {
 export const InvoiceService = {
 	createApplicationInvoice,
 	createAdmissionInvoice,
+	createIdCardInvoice,
+	requestIdCardInvoice,
 	generateSemesterInvoices,
 	generateMySemesterInvoice,
 	getMyInvoices,

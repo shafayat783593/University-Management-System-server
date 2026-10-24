@@ -9,6 +9,7 @@ const router = Router();
 
 // ---- Student (all static paths — must stay above "/:id") ----
 router.post("/application", auth(Role.STUDENT), InvoiceController.createApplicationInvoice);
+router.post("/id-card", auth(Role.STUDENT), InvoiceController.createIdCardInvoice);
 router.post(
 	"/semester/generate-my",
 	auth(Role.STUDENT),

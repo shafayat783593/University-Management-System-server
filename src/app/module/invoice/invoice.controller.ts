@@ -12,6 +12,10 @@ const createApplicationInvoice = catchAsync(async (req, res) =>
 	ok(res, "Application fee invoice ready", await InvoiceService.createApplicationInvoice(req.user!.userId), httpStatus.CREATED),
 );
 
+const createIdCardInvoice = catchAsync(async (req, res) =>
+	ok(res, "ID card invoice ready", await InvoiceService.requestIdCardInvoice(req.user!.userId), httpStatus.CREATED),
+);
+
 const generateMySemesterInvoice = catchAsync(async (req, res) =>
 	ok(res, "Semester invoice generated", await InvoiceService.generateMySemesterInvoice(req.user!.userId, req.body.semesterId), httpStatus.CREATED),
 );
@@ -63,6 +67,7 @@ const applyLateFees = catchAsync(async (req, res) =>
 
 export const InvoiceController = {
 	createApplicationInvoice,
+	createIdCardInvoice,
 	generateMySemesterInvoice,
 	generateSemesterInvoices,
 	getMyInvoices,
