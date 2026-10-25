@@ -1,16 +1,16 @@
-
-
 import httpStatus from "http-status";
 import type { Request, Response } from "express";
 import { catchAsync } from "../../utils/catchAsync.js";
 import { sendResponse } from "../../utils/sendResponse.js";
 import { AnnouncementService } from "./announcement.service.js";
 
-
-
 const createAnnouncement = catchAsync(async (req: Request, res: Response) => {
 	const user = req.user!;
-	const result = await AnnouncementService.createAnnouncement(user.userId, req.body);
+	const result = await AnnouncementService.createAnnouncement(
+		user.userId,
+		req.body,
+		req.file,
+	);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.CREATED,
@@ -23,6 +23,7 @@ const getPublishedAnnouncements = catchAsync(async (req: Request, res: Response)
 	const { data, meta } = await AnnouncementService.getPublishedAnnouncements({
 		page: req.query.page ? Number(req.query.page) : undefined,
 		limit: req.query.limit ? Number(req.query.limit) : undefined,
+		category: req.query.category ? String(req.query.category) : undefined,
 	});
 	sendResponse(res, {
 		success: true,
@@ -36,6 +37,7 @@ const getAllAnnouncementsForAdmin = catchAsync(async (req: Request, res: Respons
 	const { data, meta } = await AnnouncementService.getAllAnnouncementsForAdmin({
 		page: req.query.page ? Number(req.query.page) : undefined,
 		limit: req.query.limit ? Number(req.query.limit) : undefined,
+		category: req.query.category ? String(req.query.category) : undefined,
 	});
 	sendResponse(res, {
 		success: true,
@@ -46,8 +48,7 @@ const getAllAnnouncementsForAdmin = catchAsync(async (req: Request, res: Respons
 });
 
 const getAnnouncementById = catchAsync(async (req: Request, res: Response) => {
-
-    const id = req.params.id
+	const id = req.params.id;
 	const result = await AnnouncementService.getAnnouncementById(id as string);
 	sendResponse(res, {
 		success: true,
@@ -58,9 +59,12 @@ const getAnnouncementById = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateAnnouncement = catchAsync(async (req: Request, res: Response) => {
-    const id = req.params.id
-    const payload = req.body
-	const result = await AnnouncementService.updateAnnouncement(id as string, payload);
+	const id = req.params.id;
+	const result = await AnnouncementService.updateAnnouncement(
+		id as string,
+		req.body,
+		req.file,
+	);
 	sendResponse(res, {
 		success: true,
 		statusCode: httpStatus.OK,
@@ -70,8 +74,7 @@ const updateAnnouncement = catchAsync(async (req: Request, res: Response) => {
 });
 
 const deleteAnnouncement = catchAsync(async (req: Request, res: Response) => {
-        const id = req.params.id
-
+	const id = req.params.id;
 	await AnnouncementService.deleteAnnouncement(id as string);
 	sendResponse(res, {
 		success: true,

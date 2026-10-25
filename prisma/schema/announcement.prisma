@@ -1,14 +1,16 @@
-
-
 model Announcement {
-  id          String   @id @default(uuid())
-  title       String
-  body        String
-  authorId    String   // User.id of the admin who posted it
-  isPublished Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  title           String
+  body            String
+  authorId        String   // User.id of the admin who posted it
+  isPublished     Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  imageUrl        String?  // optional uploaded image url
+  imagePublicId   String?  // cloudinary public id
+  category        String   @default("News")
 
   @@index([isPublished, createdAt])
+  @@index([category, createdAt])
   @@map("announcements")
 }
