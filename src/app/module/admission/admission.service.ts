@@ -48,9 +48,9 @@ const submitApplication = async (
 	const setting = await prisma.systemSetting.findFirst();
 	const configuredFee = setting?.applicationFeeRequired
 		? (await getFeeSchedule(prisma, InvoiceType.APPLICATION, student.departmentId, null)).reduce(
-				(sum, l) => sum + l.amount,
-				0,
-			)
+			(sum, l) => sum + l.amount,
+			0,
+		)
 		: 0;
 	// A fee is only enforced when one is really configured (otherwise students would be stuck).
 	if (setting?.applicationFeeRequired && configuredFee > 0) {
@@ -99,7 +99,13 @@ const updateApplication = async (
 
 /** Application + the student's admission state in one response for the "Admission" page. */
 const getMyApplication = async (userId: string) => {
-	const student = await getStudent(userId);
+	const student = await prisma.studentProfile.findUnique({
+		where: {
+			userId
+		}
+	});
+	if (!student) throw new AppError(httpStatus.NOT_FOUND, "Student profile not found");
+
 	const [application, admissionInvoice, applicationInvoice] = await Promise.all([
 		prisma.admissionApplication.findUnique({ where: { studentId: student.id } }),
 		prisma.feeInvoice.findFirst({
@@ -126,12 +132,12 @@ const getMyApplication = async (userId: string) => {
 	const show = (i: typeof admissionInvoice) =>
 		i
 			? {
-					...i,
-					payableAmount: num(i.payableAmount),
-					paidAmount: num(i.paidAmount),
-					outstandingBalance:
-						outstandingMinor(toMinor(i.payableAmount), toMinor(i.paidAmount)) / 100,
-				}
+				...i,
+				payableAmount: num(i.payableAmount),
+				paidAmount: num(i.paidAmount),
+				outstandingBalance:
+					outstandingMinor(toMinor(i.payableAmount), toMinor(i.paidAmount)) / 100,
+			}
 			: null;
 
 	// What the student must pay to apply — shown BEFORE they pay, so it comes from
@@ -203,18 +209,7 @@ const listApplications = async (query: IQuary) => {
 	return { data: rows, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 };
 
-/**
- * Admin decision. APPROVED issues the ADMISSION invoice (admission charge,
- * ID card fee, refundable caution deposit — whatever the active fee policies
- * define; the application fee is never re-charged).
- *
- * Confirmation policy:
- *  - admissionPaymentRequiredToEnroll OFF -> confirm at approve time.
- *  - flag ON -> confirm ONLY once the admission invoice is PAID, which
- *    payment.service does on payment success. Approving never confirms.
- *  - flag ON but no ADMISSION fee is configured -> refuse (409) rather than
- *    hand out a free admission.
- */
+
 const reviewApplication = async (
 	actorId: string,
 	applicationId: string,
@@ -301,9 +296,9 @@ const reviewApplication = async (
 		// -> confirm now. An invoice that still owes money -> wait for payment.
 		const outstanding = existingInvoice
 			? await prisma.feeInvoice.findFirst({
-					where: { id: existingInvoice.id, status: { not: InvoiceStatus.PAID } },
-					select: { id: true },
-				})
+				where: { id: existingInvoice.id, status: { not: InvoiceStatus.PAID } },
+				select: { id: true },
+			})
 			: null;
 
 		if (!outstanding || !paymentRequired) {
