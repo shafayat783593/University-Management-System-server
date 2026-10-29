@@ -75,11 +75,26 @@ model Section {
   attendanceSessions AttendanceSession[]
   exams              Exam[]
   classRoutines      ClassRoutine[]
+  coInstructors      SectionInstructor[] 
 
   @@index([courseId])
   @@index([semesterId])
   @@index([instructorId])
   @@map("sections")
+}
+
+/// Extra instructors teaching a section together with its lead (Section.instructorId).
+model SectionInstructor {
+  id           String            @id @default(uuid())
+  sectionId    String
+  section      Section           @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  instructorId String
+  instructor   InstructorProfile @relation(fields: [instructorId], references: [id])
+  createdAt    DateTime          @default(now())
+
+  @@unique([sectionId, instructorId])
+  @@index([instructorId])
+  @@map("section_instructors")
 }
 
 model ClassRoutine {

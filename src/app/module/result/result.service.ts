@@ -9,6 +9,7 @@ import { redisClient } from "../../lib/redis.js";
 import { transporter } from "../../lib/nodmailer.js";
 import config from "../../config/index.js";
 import { pdfGenerator } from "./pdf.js";
+import { canTeachSection } from "../../lib/sectionaccess.js";
 
 export interface ISubmitResultRecord {
 	studentId: string;
@@ -22,6 +23,7 @@ export interface IOverrideResultPayload {
 const GPA_CACHE_TTL_SECONDS = 60 * 60 * 24;
 const gpaCacheKey = (studentId: string, semesterId: string) =>
 	`gpa:${studentId}:${semesterId}`;
+ 
  
 const submitResults = async (
 	userId: string,
@@ -42,7 +44,7 @@ const submitResults = async (
 	if (!exam) {
 		throw new AppError(httpStatus.NOT_FOUND, "Exam not found");
 	}
-	if (exam.section.instructorId !== instructor.id) {
+	if (!(await canTeachSection(exam.section.id, instructor.id))) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You can only submit results for your own sections",
@@ -121,6 +123,7 @@ const submitResults = async (
 		),
 	);
 };
+ 
  
 const publishExamResults = async (examId: string) => {
 	const exam = await prisma.exam.findUnique({

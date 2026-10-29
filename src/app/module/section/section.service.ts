@@ -7,45 +7,81 @@ import { SectionWhereInput } from "../../../generated/prisma/models.js";
 import { ICreateSectionPayload, IUpdateSectionPayload } from "./section.interface.js";
 
 
+const USER_NO_PASSWORD = { omit: { password: true } } as const;
+
+const INSTRUCTORS_INCLUDE = {
+	instructor: { include: { user: USER_NO_PASSWORD } },
+	coInstructors: { include: { instructor: { include: { user: USER_NO_PASSWORD } } } },
+} as const;
+
+/** Adds `instructors: [lead, ...co]` (lead flagged) while keeping the original `instructor` field. */
+const withInstructors = <T extends {instructor: object;coInstructors: { instructor: object }[]}   > (section: T) => ({
+	...section,
+	instructors: [
+		{ ...section.instructor, isPrimary: true },
+		...section.coInstructors.map((c) => ({ ...c.instructor, isPrimary: false })),
+	],
+});
+
+/** Every id must be an APPROVED instructor; the lead is removed from the co list; duplicates dropped. */
+const resolveCoInstructors = async (instructorId: string, coInstructorIds: string[] | undefined): Promise<string[]> => {
+
+	const unique = [...new Set(coInstructorIds ?? [])].filter((id) => id !== instructorId);
+
+	if (unique.length === 0) return [];
+	const found = await prisma.instructorProfile.findMany({ where: { id: { in: unique } } });
+	if (found.length !== unique.length) {
+		throw new AppError(httpStatus.NOT_FOUND, "One of the co-instructors was not found");
+	}
+	if (found.some((i) => i.verificationStatus !== InstructorApplicationStatus.APPROVED)) {
+		throw new AppError(httpStatus.BAD_REQUEST, "Every co-instructor must have an approved application");
+	}
+	return unique;
+};
+
 const createSection = async (payload: ICreateSectionPayload) => {
 	const [course, semester, instructor] = await Promise.all([
-		prisma.course.findUnique({ where: { id: payload.courseId } }),
-		prisma.semester.findUnique({ where: { id: payload.semesterId } }),
-		prisma.instructorProfile.findUnique({
+		prisma.course.findUnique({
 			where: {
-				 id: payload.instructorId
-				 },
+				id: payload.courseId
+			}
+		}),
+		prisma.semester.findUnique({
+			where: {
+				id: payload.semesterId
+			}
+		}),
+		prisma.instructorProfile.findUnique({
+			where:
+				{ id: payload.instructorId }
 		}),
 	]);
 
 	if (!course) throw new AppError(httpStatus.NOT_FOUND, "Course not found");
-	if (!semester)
-		throw new AppError(httpStatus.NOT_FOUND, "Semester not found");
-	if (!instructor)
-		throw new AppError(httpStatus.NOT_FOUND, "Instructor not found");
+	if (!semester) throw new AppError(httpStatus.NOT_FOUND, "Semester not found");
+	if (!instructor) throw new AppError(httpStatus.NOT_FOUND, "Instructor not found");
+	
 	if (instructor.verificationStatus !== InstructorApplicationStatus.APPROVED) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"Instructor's application has not been approved yet",
-		);
+		throw new AppError(httpStatus.BAD_REQUEST, "Instructor's application has not been approved yet");
 	}
-
 	if (payload.capacity <= 0) {
-		throw new AppError(
-			httpStatus.BAD_REQUEST,
-			"Capacity must be greater than zero",
-		);
+		throw new AppError(httpStatus.BAD_REQUEST, "Capacity must be greater than zero");
 	}
 
-	return prisma.section.create({
+	const coIds = await resolveCoInstructors(payload.instructorId, payload.coInstructorIds);
+
+	const created = await prisma.section.create({
 		data: {
 			courseId: payload.courseId,
 			semesterId: payload.semesterId,
 			instructorId: payload.instructorId,
 			capacity: payload.capacity,
 			schedule: payload.schedule,
+			coInstructors: { create: coIds.map((instructorId) => ({ instructorId })) },
 		},
+		include: INSTRUCTORS_INCLUDE,
 	});
+	return withInstructors(created);
 };
 
 const getAllSections = async (query:IQuary) => {
@@ -74,10 +110,7 @@ const getAllSections = async (query:IQuary) => {
 
 	
 	if (query.instructorId) {
-		andConditions.push({
-			instructorId: query.instructorId,
-
-		});
+		andConditions.push(teachesSectionWhere(query.instructorId as string));
 	}
 	if(	query.title){
 		andConditions.push({
@@ -156,16 +189,7 @@ const getAllSections = async (query:IQuary) => {
 		include: {
 			course: true,
 			semester: true,
-
-			instructor: {
-				include: {
-					user: {
-						omit: {
-							password: true,
-						},
-					},
-				},
-			},
+			...INSTRUCTORS_INCLUDE,
 
 			_count: {
 				select: {
@@ -185,7 +209,7 @@ const getAllSections = async (query:IQuary) => {
 	});
 
 	return {
-		data: sections,
+		data: sections.map(withInstructors),
 
 		meta: {
 			page,
@@ -202,13 +226,13 @@ const getSectionById = async (id: string) => {
 		include: {
 			course: true,
 			semester: true,
-			instructor: { include: { user: true } },
+			...INSTRUCTORS_INCLUDE,
 		},
 	});
 	if (!section) {
 		throw new AppError(httpStatus.NOT_FOUND, "Section not found");
 	}
-	return section;
+	return withInstructors(section);
 };
 
 const updateSection = async (id: string, payload: IUpdateSectionPayload) => {
@@ -234,9 +258,34 @@ const updateSection = async (id: string, payload: IUpdateSectionPayload) => {
 		if (!instructor) {
 			throw new AppError(httpStatus.NOT_FOUND, "Instructor not found");
 		}
+		if (instructor.verificationStatus !== InstructorApplicationStatus.APPROVED) {
+			throw new AppError(httpStatus.BAD_REQUEST, "Instructor's application has not been approved yet");
+		}
 	}
 
-	return prisma.section.update({ where: { id }, data: payload });
+	const { coInstructorIds, ...fields } = payload;
+	const leadId = payload.instructorId ?? section.instructorId;
+
+	// co list: replace when sent; otherwise just make sure the (possibly new) lead isn't also a co-instructor
+	const coIds =
+		coInstructorIds !== undefined
+			? await resolveCoInstructors(leadId, coInstructorIds)
+			: undefined;
+
+	const updated = await prisma.$transaction(async (tx) => {
+		if (coIds !== undefined) {
+			await tx.sectionInstructor.deleteMany({ where: { sectionId: id } });
+			if (coIds.length > 0) {
+				await tx.sectionInstructor.createMany({
+					data: coIds.map((instructorId) => ({ sectionId: id, instructorId })),
+				});
+			}
+		} else if (payload.instructorId) {
+			await tx.sectionInstructor.deleteMany({ where: { sectionId: id, instructorId: payload.instructorId } });
+		}
+		return tx.section.update({ where: { id }, data: fields, include: INSTRUCTORS_INCLUDE });
+	});
+	return withInstructors(updated);
 };
 
 const deleteSection = async (id: string) => {

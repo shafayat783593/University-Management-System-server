@@ -93,6 +93,7 @@ model InstructorProfile {
   updatedAt          DateTime @updatedAt
 
   sections      Section[]
+  coTeachingSections SectionInstructor[]
 
   @@index([departmentId])
   @@index([verificationStatus])

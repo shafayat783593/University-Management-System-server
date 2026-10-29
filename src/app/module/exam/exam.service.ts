@@ -4,6 +4,7 @@ import { ExamType } from "../../../generated/prisma/enums.js";
 import { AppError } from "../../utils/AppError.js";
 import { transporter } from "../../lib/nodmailer.js";
 import config from "../../config/index.js";
+import { canTeachAllSections, canTeachSection } from "../../lib/sectionaccess.js";
 
 
 
@@ -57,7 +58,9 @@ const createExam = async (userId: string, payload: ICreateExamPayload) => {
 	if (!section) {
 		throw new AppError(httpStatus.NOT_FOUND, "Section not found");
 	}
-	if (section.instructorId !== instructor.id) {
+
+	const  teachSection= await canTeachSection(section.id, instructor.id)
+	if (!teachSection) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You can only create exams for your own sections",
@@ -96,8 +99,8 @@ const createBulkExams = async (userId: string, exams: ICreateExamPayload[]) => {
 	if (sections.length !== sectionIds.length) {
 		throw new AppError(httpStatus.NOT_FOUND, "One of these sections was not found");
 	}
-	const foreign = sections.find((s) => s.instructorId !== instructor.id);
-	if (foreign) {
+	const teachAllSections = await canTeachAllSections(sectionIds, instructor.id)
+	if (!teachAllSections) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You can only create exams for your own sections",

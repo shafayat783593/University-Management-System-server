@@ -3,6 +3,7 @@ import { EnrollmentStatus } from "../../../generated/prisma/enums.js";
 import { ICreateRoutineEntryPayload } from "./routine.interface.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
+import { canTeachSection, getSectionInstructorIds } from "../../lib/sectionaccess.js";
 
 
 const DAY_ORDER = [
@@ -14,6 +15,9 @@ const DAY_ORDER = [
 	"FRIDAY",
 	"SATURDAY",
 ];
+export const teachesSectionWhere = (instructorId: string) => ({
+	OR: [{ instructorId }, { coInstructors: { some: { instructorId } } }],
+});
 
 const timeToMinutes = (time: string): number => {
 	const [h, m] = time.split(":").map(Number);
@@ -44,28 +48,30 @@ const createRoutineEntry = async (
 	if (!instructor) {
 		throw new AppError(httpStatus.NOT_FOUND, "Instructor profile not found");
 	}
-
+ 
 	const section = await prisma.section.findUnique({
 		where: { id: payload.sectionId },
 	});
 	if (!section) {
 		throw new AppError(httpStatus.NOT_FOUND, "Section not found");
 	}
-	if (section.instructorId !== instructor.id) {
+	if (!(await canTeachSection(section.id, instructor.id))) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You can only set the routine for your own sections",
 		);
 	}
-
+ 
 	const newStart = timeToMinutes(payload.startTime);
 	const newEnd = timeToMinutes(payload.endTime);
 	if (newEnd <= newStart) {
 		throw new AppError(httpStatus.BAD_REQUEST, "endTime must be after startTime");
 	}
-
+ 
+	// Nobody teaching this section (lead or co-instructor) may be double-booked.
+	const sectionInstructorIds = await getSectionInstructorIds(payload.sectionId);
 	const instructorSections = await prisma.section.findMany({
-		where: { instructorId: instructor.id },
+		where: { OR: sectionInstructorIds.map((id) => teachesSectionWhere(id)) },
 		select: { id: true },
 	});
 	const existingRoutines = await prisma.classRoutine.findMany({
@@ -74,7 +80,7 @@ const createRoutineEntry = async (
 			dayOfWeek: payload.dayOfWeek,
 		},
 	});
-
+ 
 	const hasConflict = existingRoutines.some((r) => {
 		const existingStart = timeToMinutes(r.startTime);
 		const existingEnd = timeToMinutes(r.endTime);
@@ -83,10 +89,10 @@ const createRoutineEntry = async (
 	if (hasConflict) {
 		throw new AppError(
 			httpStatus.CONFLICT,
-			"You already have a class scheduled that overlaps this time on this day",
+			"An instructor of this section already has a class scheduled that overlaps this time on this day",
 		);
 	}
-
+ 
 	return prisma.classRoutine.create({
 		data: {
 			sectionId: payload.sectionId,
@@ -97,6 +103,7 @@ const createRoutineEntry = async (
 		},
 	});
 };
+ 
 
 const getSectionRoutine = async (sectionId: string) => {
 	const entries = await prisma.classRoutine.findMany({ where: { sectionId } });

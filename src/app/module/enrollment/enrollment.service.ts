@@ -3,6 +3,7 @@ import { prisma } from "../../lib/prisma.js";
 import { EnrollmentStatus, ResultStatus, SemesterStatus } from "../../../generated/prisma/enums.js";
 import { AppError } from "../../utils/AppError.js";
 import { assertAdmissionConfirmed, assertNoOverdueDues } from "../../lib/dues.js";
+import { canTeachSection } from "../../lib/sectionaccess.js";
 
 
 const PASSING_PERCENTAGE = 40;
@@ -297,14 +298,14 @@ const getSectionEnrollments = async (
 		const instructor = await prisma.instructorProfile.findUnique({
 			where: { userId },
 		});
-		if (!instructor || section.instructorId !== instructor.id) {
+		if (!instructor || !(await canTeachSection(section.id, instructor.id))) {
 			throw new AppError(
 				httpStatus.FORBIDDEN,
 				"You can only view enrollments for your own sections",
 			);
 		}
 	}
-
+ 
 	return prisma.enrollment.findMany({
 		where: { sectionId, status: "ENROLLED" },
 		include: {

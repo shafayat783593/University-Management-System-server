@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import { AttendanceStatus, EnrollmentStatus, Role } from "../../../generated/prisma/enums.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../utils/AppError.js";
+import { canTeachSection } from "../../lib/sectionaccess.js";
 
 
 
@@ -33,11 +34,9 @@ const createAttendanceSession = async (
 	if (!section) {
 		throw new AppError(httpStatus.NOT_FOUND, "Section not found");
 	}
-	if (section.instructorId !== instructor.id) {
-		throw new AppError(
-			httpStatus.FORBIDDEN,
-			"You can only create sessions for your own sections",
-		);
+	const  teachSection = await canTeachSection(section.id, instructor.id)
+	if (!teachSection) {
+		throw new AppError(httpStatus.FORBIDDEN,"You can only create sessions for your own sections",);
 	}
 
 	const date = new Date(payload.date);
@@ -79,7 +78,7 @@ const markAttendance = async (
 	if (!session) {
 		throw new AppError(httpStatus.NOT_FOUND, "Attendance session not found");
 	}
-	if (session.section.instructorId !== instructor.id) {
+	if (!(await canTeachSection(session.section.id, instructor.id))) {
 		throw new AppError(
 			httpStatus.FORBIDDEN,
 			"You can only mark attendance for your own sections",
@@ -131,7 +130,16 @@ const getSectionAttendance = async (userId: string, sectionId: string, role: Rol
 		if (!section) {
 			throw new AppError(httpStatus.NOT_FOUND, "Section not found");
 		}
-		if (!instructor || section.instructorId !== instructor.id) {
+
+
+		if (!instructor) {
+		throw new AppError(
+				httpStatus.FORBIDDEN,
+				"You can only view attendance for your own sections",
+			);	
+		}
+		const teachSection = await canTeachSection(section.id, instructor.id)
+		if ( teachSection) {
 			throw new AppError(
 				httpStatus.FORBIDDEN,
 				"You can only view attendance for your own sections",
