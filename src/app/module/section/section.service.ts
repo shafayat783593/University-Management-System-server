@@ -23,6 +23,10 @@ const withInstructors = <T extends {instructor: object;coInstructors: { instruct
 	],
 });
 
+export const teachesSectionWhere = (instructorId: string) => ({
+	OR: [{ instructorId }, { coInstructors: { some: { instructorId } } }],
+});
+
 /** Every id must be an APPROVED instructor; the lead is removed from the co list; duplicates dropped. */
 const resolveCoInstructors = async (instructorId: string, coInstructorIds: string[] | undefined): Promise<string[]> => {
 

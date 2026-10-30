@@ -1,9 +1,42 @@
+# dependencies
 node_modules
-# Keep environment variables out of version control
-.env
 
+# Keep environment variables out of version control
+.env*
+
+# prisma
 /src/generated/prisma
+
+# build output
 dist/
+build/
+
+# test coverage
+coverage/
+
+# vercel
 .vercel
+
+# agent / IDE configs
 .agents
 .claude
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# cache
+.cache/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+*.pem
