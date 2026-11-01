@@ -26,7 +26,7 @@ model StudentProfile {
   id             String   @id @default(uuid())
   userId         String   @unique
   user           User     @relation(fields: [userId], references: [id])
-  studentIdCode  String?  @unique // generated when admission is confirmed (e.g. CSE-27-0001); null until then
+  studentIdCode  String? @unique // generated when admission is confirmed (e.g. CSE-27-0001); null until then
   admissionConfirmedAt DateTime? // set once the admission invoice is paid; gates enrollment
   departmentId   String
   department     Department @relation(fields: [departmentId], references: [id])
@@ -60,15 +60,15 @@ model AdmissionApplication {
   reviewedAt          DateTime?
   rejectionReason     String?
   previousInstitution String
-  sscBoard            String?
-  sscYear             Int?
-  sscGpa              Float?
-  hscBoard            String?
-  hscYear             Int?
-  hscGpa              Float?
-  guardianOccupation  String?
-  presentAddress      String?
-  permanentAddress    String?
+  sscBoard            String
+  sscYear             Int
+  sscGpa              Float
+  hscBoard            String
+  hscYear             Int
+  hscGpa              Float
+  guardianOccupation  String
+  presentAddress      String
+  permanentAddress    String
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -82,12 +82,12 @@ model InstructorProfile {
   user               User     @relation(fields: [userId], references: [id])
   departmentId       String
   department         Department @relation(fields: [departmentId], references: [id])
-  qualification      String?
-  resumeUrl          String?
-  resumePublicId     String?
+  qualification      String
+  resumeUrl          String
+  resumePublicId     String
   verificationStatus InstructorApplicationStatus @default(PENDING)
   rejectionReason    String?
-  reviewedBy         String?
+  reviewedBy         String
   reviewedAt         DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

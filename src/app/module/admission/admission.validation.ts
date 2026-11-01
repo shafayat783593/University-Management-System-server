@@ -1,16 +1,16 @@
 import { z } from "zod";
 
 const submitAdmissionApplicationZodSchema = z.object({
-	previousInstitution: z.string().min(2),
-	sscBoard: z.string().optional(),
-	sscYear: z.number().min(1990).max(2100).optional(),
-	sscGpa: z.number().min(0).max(5).optional(),
-	hscBoard: z.string().optional(),
-	hscYear: z.number().min(1990).max(2100).optional(),
-	hscGpa: z.number().min(0).max(5).optional(),
-	guardianOccupation: z.string().optional(),
-	presentAddress: z.string().optional(),
-	permanentAddress: z.string().optional(),
+	previousInstitution: z.string().trim().min(2),
+	sscBoard: z.string().trim().min(1),
+	sscYear: z.number().min(1990).max(2100),
+	sscGpa: z.number().min(0).max(5),
+	hscBoard: z.string().trim().min(1),
+	hscYear: z.number().min(1990).max(2100),
+	hscGpa: z.number().min(0).max(5),
+	guardianOccupation: z.string().trim().min(1),
+	presentAddress: z.string().trim().min(1),
+	permanentAddress: z.string().trim().min(1),
 });
 
 const reviewApplicationZodSchema = z
