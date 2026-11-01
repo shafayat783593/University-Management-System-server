@@ -5,13 +5,7 @@ import httpStatus from "http-status";
 import type { RateLimiterRedis } from "rate-limiter-flexible";
 import { AppError } from "../utils/AppError.js";
 
-/**
- * rate-limiter-flexible's `.consume()` rejects with a RateLimiterRes
- * object (has `msBeforeNext`) when the limit is exceeded — that's the
- * only case that should become a 429. A genuine Redis/network error
- * rejects with something else and should surface as a real error
- * instead of silently pretending to be "too many requests".
- */
+
 export const rateLimit = (limiter: RateLimiterRedis) => {
 	return async (req: Request, _res: Response, next: NextFunction) => {
 		const key = req.ip ?? "unknown";

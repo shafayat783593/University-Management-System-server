@@ -3,7 +3,7 @@ import { rateLimit } from "../../utils/Ratelimit.js";
 import { authRateLimiter, refreshRateLimiter } from "../../utils/Ratelimiter.js";
 import { AuthController } from "./auth.controller.js";
 import { auth } from "../../middleware/auth.js";
-import { requireNoDues } from "../../middleware/requireNoDues.js";
+
 import { validateRequest } from "../../middleware/validateRequest.js";
 import { AuthValidation } from "./auth.validation.js";
 import { Role } from "../../../generated/prisma/enums.js";
@@ -78,7 +78,7 @@ router.patch(
 // downloaded (admission confirmed + ID card fee settled) and what is still
 // missing from their profile.
 router.get("/id-card/status", auth(Role.STUDENT), AuthController.getIdCardStatus);
-router.get("/id-card", auth(Role.STUDENT), requireNoDues, AuthController.downloadIdCard);
+router.get("/id-card", auth(Role.STUDENT), AuthController.downloadIdCard);
 router.post("/logout", AuthController.logout)
 
 export const AuthRoutes = router;

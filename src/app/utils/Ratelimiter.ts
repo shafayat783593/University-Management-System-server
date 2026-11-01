@@ -6,9 +6,9 @@ export const authRateLimiter = new RateLimiterRedis({
 	useRedisPackage: true,
 
 	keyPrefix: "rl:auth",
-	points: 5,
-	duration: 15 * 60,
-	blockDuration: 15 * 60,
+	points: 8,
+	duration: 60,
+	blockDuration: 60,
 });
 
 export const refreshRateLimiter = new RateLimiterRedis({
@@ -17,6 +17,6 @@ export const refreshRateLimiter = new RateLimiterRedis({
 
 	keyPrefix: "rl:refresh",
 	points: 10,
-	duration: 15 * 60,
-	blockDuration: 15 * 60,
+	duration:   60,
+	blockDuration:  60,
 });

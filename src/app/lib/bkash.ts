@@ -13,16 +13,20 @@ const ID_TOKEN_TTL_SECONDS = 3300;
 // conservative placeholder, not a confirmed number.
 const REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 23;
 
+// Hard timeouts — bKash (and redis) must never be allowed to hang the
+// payment callback indefinitely (§2). A dead/slow gateway used to leave the
+// frontend on "Confirming payment…" forever.
+const BKASH_HTTP_TIMEOUT_MS = 15_000;
+const REDIS_TIMEOUT_MS = 3_000;
+
 interface IBkashGrantResponse {
 	id_token: string;
 	refresh_token?: string;
 }
-
 interface IBkashCreatePaymentResponse {
 	paymentID: string;
 	bkashURL: string;
 }
-
 interface IBkashExecutePaymentResponse {
 	transactionStatus: string;
 	trxID: string;
@@ -30,12 +34,24 @@ interface IBkashExecutePaymentResponse {
 	amount: string;
 	currency?: string;
 }
-
 interface IBkashRefundResponse {
 	refundTrxID: string;
 	completedTime?: string;
 	amount: string;
 }
+
+const withTimeout = <T>(promise: Promise<T>, ms = REDIS_TIMEOUT_MS): Promise<T> => {
+	let timer: NodeJS.Timeout | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() => reject(new AppError(httpStatus.GATEWAY_TIMEOUT, `bKash request timed out after ${ms}ms`)),
+			ms,
+		);
+	});
+	return Promise.race([promise, timeout]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
+};
 
 const cacheTokens = async (data: IBkashGrantResponse) => {
 	await redisClient
@@ -43,7 +59,6 @@ const cacheTokens = async (data: IBkashGrantResponse) => {
 			expiration: { type: "EX", value: ID_TOKEN_TTL_SECONDS },
 		})
 		.catch(() => null);
-
 	if (data.refresh_token) {
 		await redisClient
 			.set(REFRESH_TOKEN_CACHE_KEY, data.refresh_token, {
@@ -68,15 +83,14 @@ const requestNewGrantToken = async (): Promise<string> => {
 				app_key: config.bkash_app_key,
 				app_secret: config.bkash_app_secret,
 			}),
+			signal: AbortSignal.timeout(BKASH_HTTP_TIMEOUT_MS),
 		},
 	);
-
 	const data = (await response.json()) as IBkashGrantResponse;
 	if (!response.ok || !data.id_token) {
 		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to get bKash grant token");
 	}
-
-	await cacheTokens(data);
+	await withTimeout(cacheTokens(data), REDIS_TIMEOUT_MS).catch(() => null);
 	return data.id_token;
 };
 
@@ -96,26 +110,24 @@ const refreshGrantToken = async (refreshToken: string): Promise<string> => {
 				app_secret: config.bkash_app_secret,
 				refresh_token: refreshToken,
 			}),
+			signal: AbortSignal.timeout(BKASH_HTTP_TIMEOUT_MS),
 		},
 	);
-
 	const data = (await response.json()) as IBkashGrantResponse;
 	if (!response.ok || !data.id_token) {
 		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to refresh bKash grant token");
 	}
-
-	await cacheTokens(data);
+	await withTimeout(cacheTokens(data), REDIS_TIMEOUT_MS).catch(() => null);
 	return data.id_token;
 };
 
 const getGrantToken = async (): Promise<string> => {
-	const cachedIdToken = await redisClient.get(ID_TOKEN_CACHE_KEY).catch(() => null);
+	const cachedIdToken = await withTimeout(redisClient.get(ID_TOKEN_CACHE_KEY).catch(() => null), REDIS_TIMEOUT_MS).catch(() => null);
 	if (cachedIdToken) return cachedIdToken;
-
-	const cachedRefreshToken = await redisClient
-		.get(REFRESH_TOKEN_CACHE_KEY)
-		.catch(() => null);
-
+	const cachedRefreshToken = await withTimeout(
+		redisClient.get(REFRESH_TOKEN_CACHE_KEY).catch(() => null),
+		REDIS_TIMEOUT_MS,
+	).catch(() => null);
 	if (cachedRefreshToken) {
 		try {
 			return await refreshGrantToken(cachedRefreshToken);
@@ -124,7 +136,6 @@ const getGrantToken = async (): Promise<string> => {
 			// to a full grant below instead of failing the request.
 		}
 	}
-
 	return requestNewGrantToken();
 };
 
@@ -134,7 +145,6 @@ const createPayment = async (params: {
 	callbackURL: string;
 }): Promise<IBkashCreatePaymentResponse> => {
 	const token = await getGrantToken();
-
 	const response = await fetch(
 		`${config.bkash_base_url}/tokenized/checkout/create`,
 		{
@@ -154,22 +164,18 @@ const createPayment = async (params: {
 				intent: "sale",
 				merchantInvoiceNumber: params.invoiceNumber,
 			}),
+			signal: AbortSignal.timeout(BKASH_HTTP_TIMEOUT_MS),
 		},
 	);
-
 	const data = (await response.json()) as IBkashCreatePaymentResponse;
 	if (!response.ok || !data.paymentID) {
 		throw new AppError(httpStatus.BAD_GATEWAY, "Failed to create bKash payment");
 	}
-
 	return data;
 };
 
-const executePayment = async (
-	paymentID: string,
-): Promise<IBkashExecutePaymentResponse> => {
+const executePayment = async (paymentID: string): Promise<IBkashExecutePaymentResponse> => {
 	const token = await getGrantToken();
-
 	const response = await fetch(
 		`${config.bkash_base_url}/tokenized/checkout/execute`,
 		{
@@ -181,27 +187,18 @@ const executePayment = async (
 				"X-App-Key": config.bkash_app_key,
 			},
 			body: JSON.stringify({ paymentID }),
+			signal: AbortSignal.timeout(BKASH_HTTP_TIMEOUT_MS),
 		},
 	);
-
 	const data = (await response.json()) as IBkashExecutePaymentResponse;
 	if (!response.ok || data.transactionStatus !== "Completed") {
 		throw new AppError(httpStatus.BAD_GATEWAY, "bKash payment execution failed");
 	}
-
 	return data;
 };
 
-/**
- * Server-to-server status check. Unlike executePayment this does NOT throw
- * on a non-Completed status — the caller decides what Initiated / Failed
- * means. Used to recover when our execute call or DB write died halfway.
- */
-const queryPayment = async (
-	paymentID: string,
-): Promise<IBkashExecutePaymentResponse> => {
+const queryPayment = async (paymentID: string): Promise<IBkashExecutePaymentResponse> => {
 	const token = await getGrantToken();
-
 	const response = await fetch(
 		`${config.bkash_base_url}/tokenized/checkout/payment/status`,
 		{
@@ -213,9 +210,9 @@ const queryPayment = async (
 				"X-App-Key": config.bkash_app_key,
 			},
 			body: JSON.stringify({ paymentID }),
+			signal: AbortSignal.timeout(BKASH_HTTP_TIMEOUT_MS),
 		},
 	);
-
 	const data = (await response.json()) as IBkashExecutePaymentResponse;
 	if (!response.ok || !data.transactionStatus) {
 		throw new AppError(httpStatus.BAD_GATEWAY, "bKash payment status check failed");
@@ -231,7 +228,6 @@ const refundPayment = async (params: {
 	reason: string;
 }): Promise<IBkashRefundResponse> => {
 	const token = await getGrantToken();
-
 	const response = await fetch(
 		`${config.bkash_base_url}/tokenized/checkout/payment/refund`,
 		{
@@ -249,14 +245,13 @@ const refundPayment = async (params: {
 				sku: params.sku,
 				reason: params.reason,
 			}),
+			signal: AbortSignal.timeout(BKASH_HTTP_TIMEOUT_MS),
 		},
 	);
-
 	const data = (await response.json()) as IBkashRefundResponse;
 	if (!response.ok || !data.refundTrxID) {
 		throw new AppError(httpStatus.BAD_GATEWAY, "bKash refund failed");
 	}
-
 	return data;
 };
 

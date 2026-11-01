@@ -11,7 +11,6 @@
     "start": "node dist/server.js",
     "vercel-build": "prisma generate"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",

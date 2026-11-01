@@ -42,7 +42,7 @@ const getAllDepartments = async (query: IQuary) => {
 
 	const andConditions: DepartmentWhereInput[] = [];
 
-	
+
 	if (query.searchTerm) {
 	andConditions.push({
 		OR: [
@@ -71,7 +71,7 @@ const getAllDepartments = async (query: IQuary) => {
 			mode: "insensitive",
 		},
 	});
-}
+	}
 	const departments = await prisma.department.findMany({
 		where: {
 			AND: andConditions.length > 0 ? andConditions : undefined,
@@ -116,6 +116,25 @@ const getAllDepartments = async (query: IQuary) => {
 const getDepartmentById = async (id: string) => {
 	const department = await prisma.department.findUnique({
 		where: { id },
+		include: {
+			_count: {
+				select: {
+					courses: true,
+					students: true,
+					instructors: true,
+				},
+			},
+			courses: true,
+			instructors: {
+				include: {
+					user: {
+						select: {
+							name: true,
+						},
+					},
+				},
+			},
+		},
 	});
 	if (!department) {
 		throw new AppError(httpStatus.NOT_FOUND, "Department not found");
@@ -139,7 +158,7 @@ const updateDepartment = async (
 const deleteDepartment = async (id: string) => {
 	const department = await prisma.department.findUnique({
 		where: {
-			 id 
+			 id
 			}
 	});
 	if (!department) {
@@ -147,7 +166,7 @@ const deleteDepartment = async (id: string) => {
 	}
 
 	const courseCount = await prisma.course.count({
-		where: { 
+		where: {
 			departmentId: id
 		 },
 	});
@@ -157,7 +176,7 @@ const deleteDepartment = async (id: string) => {
 			"Cannot delete a department that still has courses",
 		);
 	}
-	return prisma.department.delete({ 
+	return prisma.department.delete({
 		where: { id }
 	 });
 };
