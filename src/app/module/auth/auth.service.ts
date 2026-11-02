@@ -163,7 +163,7 @@ const verifyStudentEmail = async (payload: IVerifyEmailPayload) => {
 					departmentId: parsed.departmentId,
 					phone: parsed.phone || null,
 				},
-			},
+			}, 
 		},
 		omit: { password: true },
 		include: { studentProfile: true },
